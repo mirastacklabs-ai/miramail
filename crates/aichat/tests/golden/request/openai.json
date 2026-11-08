@@ -1,0 +1,24 @@
+{
+  "model": "gpt-test",
+  "stream": true,
+  "stream_options": {"include_usage": true},
+  "max_tokens": 1024,
+  "messages": [
+    {"role": "system", "content": "You are MiraMail's assistant."},
+    {"role": "user", "content": "Find the invoice from ACME"},
+    {"role": "assistant", "content": "Searching.", "tool_calls": [
+      {"id": "c1", "type": "function", "function": {"name": "search_mail", "arguments": "{\"limit\":5,\"query\":\"ACME invoice\"}"}},
+      {"id": "c2", "type": "function", "function": {"name": "list_folders", "arguments": "{}"}}
+    ]},
+    {"role": "tool", "tool_call_id": "c1", "content": "m:1 ACME invoice #42"},
+    {"role": "tool", "tool_call_id": "c2", "content": "Error: account not found"},
+    {"role": "user", "content": "Also check the archive"},
+    {"role": "assistant", "content": "Found it."},
+    {"role": "user", "content": "Thanks"}
+  ],
+  "tools": [
+    {"type": "function", "function": {"name": "get_message", "description": "Read one message", "parameters": {"type": "object", "properties": {"ref": {"type": "string"}}, "required": ["ref"]}}},
+    {"type": "function", "function": {"name": "list_folders", "description": "List folders", "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "search_mail", "description": "Search mail", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}}}
+  ]
+}

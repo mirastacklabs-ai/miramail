@@ -1,0 +1,85 @@
+@font-face { font-family: "Oswald"; src: url("./assets/fonts/oswald-latin-wght-normal.woff2") format("woff2"); font-weight: 200 700; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("./assets/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("./assets/fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2"); font-weight: 600 700; font-display: swap; }
+
+:root {
+  --bg: #0a0a0a; --bg-band: #000; --surface: #191919; --ink: #fff; --text: #e6e6e6; --muted: #8f8f8f;
+  --line: #272727; --accent: #2bd4bf; --logo-teal: #00c9b1; --signal: #ff671f; --btn-bg: #fff; --btn-text: #0a0a0a;
+  --danger: #ff8a7a;
+  --radius: 4px;
+  --ui-size: 15px; --row-py: 10px; --folder-py: 7px; --snip-lines: 1;
+  --body-font: var(--font-mono); --html-font: -apple-system, system-ui, sans-serif; --body-size: 14px; --body-lh: 1.5;
+  --font-ui: "Oswald", -apple-system, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #fff; --bg-band: #f6f5f1; --surface: #fff; --ink: #0a0a0a; --text: #1c1c1c; --muted: #5e5e5e;
+    --line: #e4e2dc; --accent: #00695f; --logo-teal: #007a6e; --btn-bg: #0a0a0a; --btn-text: #fff; --danger: #b3261e;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #fff; --bg-band: #f6f5f1; --surface: #fff; --ink: #0a0a0a; --text: #1c1c1c; --muted: #5e5e5e;
+  --line: #e4e2dc; --accent: #00695f; --logo-teal: #007a6e; --btn-bg: #0a0a0a; --btn-text: #fff; --danger: #b3261e;
+  color-scheme: light;
+}
+
+/* High contrast (Preferences > Appearance). Also applied automatically for the System theme when macOS asks for more contrast. */
+:root[data-theme="contrast"] {
+  --bg: #000; --bg-band: #000; --surface: #000; --ink: #fff; --text: #fff; --muted: #d6d6d6;
+  --line: #9a9a9a; --accent: #5ef2dc; --logo-teal: #5ef2dc; --signal: #ff9a5c; --btn-bg: #fff; --btn-text: #000; --danger: #ff9d8f;
+  color-scheme: dark;
+}
+@media (prefers-contrast: more) {
+  :root:not([data-theme]) { --muted: #c4c4c4; --line: #6e6e6e; }
+}
+:root[data-theme="contrast"] :focus-visible { outline-width: 3px; outline-color: #fff; }
+:root[data-theme="contrast"] a { text-decoration: underline; }
+:root[data-theme="contrast"] .btn.ghost, :root[data-theme="contrast"] .field input, :root[data-theme="contrast"] .field select, :root[data-theme="contrast"] .field textarea { border-color: var(--text); }
+
+*, *::before, *::after { box-sizing: border-box; }
+html { font-size: var(--ui-size); }
+html, body, #app { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 400 1rem/1.45 var(--font-ui); -webkit-font-smoothing: antialiased; overflow: hidden; user-select: none; cursor: default; }
+input, textarea, .selectable { user-select: text; cursor: text; }
+button { font: inherit; color: inherit; cursor: pointer; }
+h1, h2, h3 { margin: 0; color: var(--ink); text-transform: uppercase; font-weight: 600; letter-spacing: .04em; }
+a { color: var(--accent); }
+.mono { font-family: var(--font-mono); font-size: 0.8rem; letter-spacing: 0; }
+.label { font-size: 0.7333rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); font-weight: 500; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+.btn {
+  background: var(--btn-bg); color: var(--btn-text); border: 1px solid var(--btn-bg); border-radius: var(--radius);
+  padding: 8px 16px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; line-height: 1.2;
+}
+.btn:hover:not(:disabled) { opacity: .88; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+.btn.ghost:hover:not(:disabled) { border-color: var(--muted); opacity: 1; }
+.btn.danger { background: transparent; color: var(--danger); border-color: var(--line); }
+.btn.sm { padding: 5px 10px; font-size: 0.7333rem; }
+.iconbtn { background: transparent; border: 1px solid transparent; border-radius: var(--radius); width: 28px; height: 28px; display: inline-grid; place-items: center; color: var(--muted); padding: 0; }
+.iconbtn:hover { color: var(--ink); border-color: var(--line); }
+.iconbtn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+.field { display: grid; gap: 6px; }
+.field input, .field select, .field textarea {
+  width: 100%; background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 12px; font: 400 0.9333rem var(--font-mono); outline-offset: 0;
+}
+.field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+.skeleton { background: linear-gradient(90deg, var(--line), color-mix(in srgb, var(--line) 40%, transparent), var(--line)); background-size: 200% 100%; border-radius: 2px; animation: shimmer 1.4s linear infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+}
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; border: 2px solid var(--bg); }

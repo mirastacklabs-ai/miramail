@@ -1,0 +1,18 @@
+[package]
+name = "calendar"
+version = "0.1.0"
+edition = "2021"
+license = "LicenseRef-Proprietary"
+publish = false
+description = "MiraMail calendar core: ICS (RFC 5545), RRULE, iTIP (RFC 5546), SQLite storage. No network."
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "alloc"] }
+chrono-tz = "0.10"
+rusqlite = { version = "0.41", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"

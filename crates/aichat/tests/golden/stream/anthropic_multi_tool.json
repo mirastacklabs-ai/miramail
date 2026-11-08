@@ -1,0 +1,13 @@
+{"events": [
+  {"type": "tool_call_start", "data": {"idx": 0, "id": "toolu_a", "name": "list_accounts"}},
+  {"type": "tool_call_end", "data": {"idx": 0}},
+  {"type": "tool_call_start", "data": {"idx": 1, "id": "toolu_b", "name": "list_folders"}},
+  {"type": "tool_call_args_delta", "data": {"idx": 1, "frag": "{\"account\":"}},
+  {"type": "tool_call_args_delta", "data": {"idx": 1, "frag": " \"a:1\"}"}},
+  {"type": "tool_call_end", "data": {"idx": 1}},
+  {"type": "tool_call_start", "data": {"idx": 2, "id": "toolu_c", "name": "mail_stats"}},
+  {"type": "tool_call_end", "data": {"idx": 2}},
+  {"type": "usage", "data": {"input": 10, "output": 60, "cache_read": 0}},
+  {"type": "done", "data": "tool_use"}
+],
+"tool_args": {"0": {}, "1": {"account": "a:1"}, "2": {}}}

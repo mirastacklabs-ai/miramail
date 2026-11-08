@@ -1,0 +1,11 @@
+{"events": [
+  {"type": "opaque", "data": {"dialect": "anthropic", "raw": {"type": "thinking", "thinking": "The user wants invoices — search first.", "signature": "EqQBCgIYAhIM1gbcDa9GJwZA2b3hGgxBdjrkzLoky3dl1pkiMOYds"}}},
+  {"type": "opaque", "data": {"dialect": "anthropic", "raw": {"type": "redacted_thinking", "data": "EmwKAhgBEgy3va3pzix/LafPsn4aDFIT2Xlxh0L5L8rLVyIwxtE3rAFBa8cr3qpP"}}},
+  {"type": "text_delta", "data": "Looking."},
+  {"type": "tool_call_start", "data": {"idx": 0, "id": "toolu_t", "name": "search_mail"}},
+  {"type": "tool_call_args_delta", "data": {"idx": 0, "frag": "{\"query\":\"invoice\"}"}},
+  {"type": "tool_call_end", "data": {"idx": 0}},
+  {"type": "usage", "data": {"input": 30, "output": 90, "cache_read": 0}},
+  {"type": "done", "data": "tool_use"}
+],
+"tool_args": {"0": {"query": "invoice"}}}

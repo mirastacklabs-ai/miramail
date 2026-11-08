@@ -1,0 +1,4 @@
+{"events": [
+  {"type": "text_delta", "data": "The list goes on and"},
+  {"type": "done", "data": "max_tokens"}
+]}

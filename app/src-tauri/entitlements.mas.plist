@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Mac App Store entitlements for the MAIN executable. The team-id placeholder in the values below is replaced by scripts/build-mas.sh
+       (from MAS_TEAM_ID) in a copy under target/ before signing. Never commit a real team id. Rationale: docs/MAS_BUILD.md. -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+  <!-- IMAP / SMTP / CalDAV / AI endpoint / Zoom / DNS: outgoing connections. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <!-- Zoom OAuth loopback callback (127.0.0.1:53682) accepts one incoming connection. -->
+  <key>com.apple.security.network.server</key>
+  <true/>
+  <!-- WKWebView file inputs (restore backup, import vCard, compose attachments) go through the open panel. -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+  <!-- Attachments, .eml, mbox, vCard and backup files are written to the real ~/Downloads. -->
+  <key>com.apple.security.files.downloads.read-write</key>
+  <true/>
+  <!-- Required in a signed MAS build; both values come from the provisioning profile. -->
+  <key>com.apple.application-identifier</key>
+  <string>TEAMID.ai.mirastacklabs.miramail</string>
+  <key>com.apple.developer.team-identifier</key>
+  <string>TEAMID</string>
+  <!-- Keychain access group for the app's own items (passwords, AI keys, Zoom tokens). -->
+  <key>keychain-access-groups</key>
+  <array>
+    <string>TEAMID.ai.mirastacklabs.miramail</string>
+  </array>
+</dict>
+</plist>

@@ -1,0 +1,4 @@
+{"events": [
+  {"type": "text_delta", "data": "Partial"}
+],
+"error": {"kind": "Server", "contains": "Upstream provider [redacted] returned error", "not_contains": "sk-or"}}

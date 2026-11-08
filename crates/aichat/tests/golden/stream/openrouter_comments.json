@@ -1,0 +1,6 @@
+{"events": [
+  {"type": "text_delta", "data": "Sure"},
+  {"type": "text_delta", "data": "."},
+  {"type": "usage", "data": {"input": 10, "output": 2, "cache_read": 0}},
+  {"type": "done", "data": "end_turn"}
+]}

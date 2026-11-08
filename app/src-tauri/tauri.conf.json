@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MiraMail",
+  "version": "1.0.0",
+  "identifier": "ai.mirastacklabs.miramail",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "MiraMail",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 860,
+        "minHeight": 560,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-src 'self' about: data: blob:; connect-src ipc: http://ipc.localhost; form-action 'none'; base-uri 'self'; object-src 'none'",
+      "devCsp": "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-src 'self' about: data: blob:; script-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost ws://localhost:1420 http://localhost:1420; form-action 'none'; base-uri 'self'; object-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "category": "Productivity",
+    "copyright": "© 2026 MIRASTACK LABS PRIVATE LIMITED",
+    "publisher": "MIRASTACK LABS PRIVATE LIMITED",
+    "shortDescription": "Ad-free, lightweight mail client",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.png"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "bundleVersion": "13",
+      "files": {
+        "Resources/PrivacyInfo.xcprivacy": "PrivacyInfo.xcprivacy"
+      }
+    }
+  }
+}

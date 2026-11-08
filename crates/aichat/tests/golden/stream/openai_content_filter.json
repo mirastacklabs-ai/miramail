@@ -1,0 +1,4 @@
+{"events": [
+  {"type": "text_delta", "data": "I"},
+  {"type": "done", "data": "content_filter"}
+]}

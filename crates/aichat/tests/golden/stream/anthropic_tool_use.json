@@ -1,0 +1,10 @@
+{"events": [
+  {"type": "text_delta", "data": "Searching."},
+  {"type": "tool_call_start", "data": {"idx": 0, "id": "toolu_01", "name": "search_mail"}},
+  {"type": "tool_call_args_delta", "data": {"idx": 0, "frag": "{\"query\": \"inv"}},
+  {"type": "tool_call_args_delta", "data": {"idx": 0, "frag": "oice\", \"limit\": 5}"}},
+  {"type": "tool_call_end", "data": {"idx": 0}},
+  {"type": "usage", "data": {"input": 1450, "output": 40, "cache_read": 1000}},
+  {"type": "done", "data": "tool_use"}
+],
+"tool_args": {"0": {"query": "invoice", "limit": 5}}}

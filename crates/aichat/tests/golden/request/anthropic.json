@@ -1,0 +1,29 @@
+{
+  "model": "claude-test",
+  "max_tokens": 1024,
+  "stream": true,
+  "system": "You are MiraMail's assistant.",
+  "messages": [
+    {"role": "user", "content": [{"type": "text", "text": "Find the invoice from ACME"}]},
+    {"role": "assistant", "content": [
+      {"type": "thinking", "thinking": "Search first.", "signature": "sig=="},
+      {"type": "redacted_thinking", "data": "opaque=="},
+      {"type": "text", "text": "Searching."},
+      {"type": "tool_use", "id": "c1", "name": "search_mail", "input": {"query": "ACME invoice", "limit": 5}},
+      {"type": "tool_use", "id": "c2", "name": "list_folders", "input": {}}
+    ]},
+    {"role": "user", "content": [
+      {"type": "tool_result", "tool_use_id": "c1", "content": "m:1 ACME invoice #42"},
+      {"type": "tool_result", "tool_use_id": "c2", "content": "account not found", "is_error": true},
+      {"type": "text", "text": "Also check the archive"}
+    ]},
+    {"role": "assistant", "content": [{"type": "text", "text": "Found it."}]},
+    {"role": "user", "content": [{"type": "text", "text": "Thanks"}]}
+  ],
+  "tools": [
+    {"name": "get_message", "description": "Read one message", "input_schema": {"type": "object", "properties": {"ref": {"type": "string"}}, "required": ["ref"]}},
+    {"name": "list_folders", "description": "List folders", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "search_mail", "description": "Search mail", "input_schema": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["query"]}}
+  ],
+  "tool_choice": {"type": "auto"}
+}

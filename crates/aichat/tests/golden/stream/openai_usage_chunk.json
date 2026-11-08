@@ -1,0 +1,5 @@
+{"events": [
+  {"type": "text_delta", "data": "Hi"},
+  {"type": "usage", "data": {"input": 120, "output": 7, "cache_read": 100}},
+  {"type": "done", "data": "end_turn"}
+]}

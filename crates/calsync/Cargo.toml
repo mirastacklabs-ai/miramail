@@ -1,0 +1,23 @@
+[package]
+name = "calsync"
+version = "0.1.0"
+edition = "2021"
+license = "LicenseRef-Proprietary"
+publish = false
+description = "MiraMail calendar network layer: CalDAV sync (RFC 4791/6764) and Zoom OAuth2+PKCE / Meetings API."
+
+[dependencies]
+calendar = { path = "../calendar" }
+tokio = { version = "1", default-features = false, features = ["rt", "macros", "net", "time", "io-util", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+quick-xml = "0.37"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+chrono = { version = "0.4", default-features = false, features = ["std", "alloc"] }
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "net", "time", "io-util", "sync"] }

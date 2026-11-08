@@ -1,0 +1,20 @@
+[package]
+name = "aichat"
+version = "0.1.0"
+edition = "2021"
+license = "LicenseRef-Proprietary"
+publish = false
+description = "AI chat engine for MiraMail: OpenAI-compatible and Anthropic providers, tools, proposals (see docs/AI_CHAT_PLAN.md)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net", "io-util"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "test-util"] }
+tempfile = "3"

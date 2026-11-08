@@ -1,0 +1,7 @@
+{"events": [
+  {"type": "tool_call_start", "data": {"idx": 0, "id": "toolu_m", "name": "draft_reply"}},
+  {"type": "tool_call_args_delta", "data": {"idx": 0, "frag": "{\"body\": \"Dear"}},
+  {"type": "tool_call_end", "data": {"idx": 0}},
+  {"type": "usage", "data": {"input": 9, "output": 1024, "cache_read": 0}},
+  {"type": "done", "data": "max_tokens"}
+]}

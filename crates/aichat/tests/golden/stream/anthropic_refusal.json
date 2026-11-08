@@ -1,0 +1,6 @@
+{"events": [
+  {"type": "text_delta", "data": "I can"},
+  {"type": "text_delta", "data": "'t help"},
+  {"type": "usage", "data": {"input": 9, "output": 4, "cache_read": 0}},
+  {"type": "done", "data": "refusal"}
+]}

@@ -1,0 +1,6 @@
+{"events": [
+  {"type": "text_delta", "data": "Héllo"},
+  {"type": "text_delta", "data": " 🦀!"},
+  {"type": "usage", "data": {"input": 25, "output": 15, "cache_read": 0}},
+  {"type": "done", "data": "end_turn"}
+]}

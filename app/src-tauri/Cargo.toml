@@ -1,0 +1,44 @@
+[package]
+name = "miramail"
+version = "1.0.0"
+edition = "2021"
+description = "MiraMail: ad-free, lightweight macOS mail client"
+license = "LicenseRef-Proprietary"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+mailcore = { path = "../../crates/mailcore" }
+autodetect = { path = "../../crates/autodetect" }
+calendar = { path = "../../crates/calendar" }
+calsync = { path = "../../crates/calsync" }
+aichat = { path = "../../crates/aichat" }
+futures-util = "0.3"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# Already a dependency of chrono's "clock" feature; used directly to read the Mac's IANA time zone name for the assistant.
+iana-time-zone = "0.1"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["sync", "time", "macros", "net"] }
+# One-click unsubscribe POST only (docs/ESSENTIALS_SPEC.md); already in the workspace via autodetect / aichat / calsync.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde_json = "1"
+base64 = "0.23"
+rusqlite = { version = "0.41", features = ["bundled"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSWindow", "NSResponder", "NSWorkspace"] }
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSURL", "NSString", "NSBundle", "NSError", "NSObject"] }
+objc2-user-notifications = { version = "0.3", features = ["block2"] }
+objc2-service-management = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["test-util", "rt", "rt-multi-thread", "macros", "time", "sync", "net", "io-util"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

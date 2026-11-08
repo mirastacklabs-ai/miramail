@@ -1,0 +1,12 @@
+: OPENROUTER PROCESSING
+
+: OPENROUTER PROCESSING
+
+data: {"id":"gen-1","provider":"Anthropic","model":"anthropic/claude-x","choices":[{"index":0,"delta":{"role":"assistant","content":"Sure"},"finish_reason":null,"native_finish_reason":null}]}
+
+: OPENROUTER PROCESSING
+
+data: {"id":"gen-1","choices":[{"index":0,"delta":{"role":"assistant","content":"."},"finish_reason":"stop","native_finish_reason":"end_turn"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}
+
+data: [DONE]
+

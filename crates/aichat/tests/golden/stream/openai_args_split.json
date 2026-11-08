@@ -1,0 +1,11 @@
+{"events": [
+  {"type": "text_delta", "data": "Let me look."},
+  {"type": "tool_call_start", "data": {"idx": 0, "id": "call_1", "name": "get_message"}},
+  {"type": "tool_call_args_delta", "data": {"idx": 0, "frag": "{\"re"}},
+  {"type": "tool_call_args_delta", "data": {"idx": 0, "frag": "f\": \"m:"}},
+  {"type": "tool_call_args_delta", "data": {"idx": 0, "frag": "12\", \"note\": \"a \\\""}},
+  {"type": "tool_call_args_delta", "data": {"idx": 0, "frag": "q\\\" é\"}"}},
+  {"type": "tool_call_end", "data": {"idx": 0}},
+  {"type": "done", "data": "tool_use"}
+],
+"tool_args": {"0": {"ref": "m:12", "note": "a \"q\" é"}}}

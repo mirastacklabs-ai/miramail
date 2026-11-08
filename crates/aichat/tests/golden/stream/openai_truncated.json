@@ -1,0 +1,4 @@
+{"events": [
+  {"type": "text_delta", "data": "Cut"}
+],
+"error": {"kind": "Other", "contains": "ended unexpectedly"}}

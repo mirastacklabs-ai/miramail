@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>LSRequiresCarbon</key>
+  <false/>
+  <!-- Export compliance: the app only uses standard TLS (IMAP/SMTP/HTTPS) via rustls and the OS; no proprietary or non-standard cryptography. Owner to confirm before submission (docs/MAS_BUILD.md). -->
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.productivity</string>
+  <!-- Lets macOS offer MiraMail for mailto: links (the user still chooses the default in Mail > Settings). -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>Email address</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>mailto</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>

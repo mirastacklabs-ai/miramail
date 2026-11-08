@@ -1,0 +1,195 @@
+# Known email-tracking patterns. Best-effort, hand-curated; static heuristics only.
+# Subset-of-TOML format parsed by src/tracking.rs (no toml dependency):
+#   [[rule]]    name (required) + any of host_suffix / host_contains / path (all given must match)
+#   [[generic]] contains (substring of lowercase path+query) + reason
+# host_suffix matches the host or any subdomain; path is a substring of the lowercase path+query.
+# First matching [[rule]] wins, so put specific hosts before path-only rules.
+
+[[rule]]
+name = "Mailchimp open tracking"
+host_suffix = "list-manage.com"
+path = "/track/open"
+
+[[rule]]
+name = "Mandrill open tracking"
+host_suffix = "mandrillapp.com"
+path = "/track/open"
+
+[[rule]]
+name = "Klaviyo open tracking"
+host_suffix = "klaviyomail.com"
+
+[[rule]]
+name = "Klaviyo open tracking"
+host_suffix = "klclick.com"
+
+[[rule]]
+name = "Klaviyo open tracking"
+host_suffix = "klaviyo.com"
+path = "/wf/open"
+
+[[rule]]
+name = "SendGrid link/open tracking"
+host_contains = "ablink."
+
+[[rule]]
+name = "SendGrid open tracking"
+host_suffix = "sendgrid.net"
+path = "/wf/open"
+
+[[rule]]
+name = "Amazon SES open tracking"
+host_suffix = "awstrack.me"
+path = "/i0/"
+
+[[rule]]
+name = "HubSpot email tracking"
+host_suffix = "hubspotemail.net"
+
+[[rule]]
+name = "HubSpot email tracking"
+path = "/__ptq.gif"
+
+[[rule]]
+name = "HubSpot email tracking"
+path = "/e2t/o/"
+
+[[rule]]
+name = "Mailgun open tracking"
+host_contains = "mailgun"
+path = "/o/"
+
+[[rule]]
+name = "Postmark open tracking"
+host_suffix = "pstmrk.it"
+path = "/open/"
+
+[[rule]]
+name = "SparkPost tracking"
+host_suffix = "spgo.io"
+
+[[rule]]
+name = "Salesforce Marketing Cloud open tracking"
+path = "/open.aspx"
+
+[[rule]]
+name = "Constant Contact open tracking"
+host_suffix = "constantcontact.com"
+path = "/o.gif"
+
+[[rule]]
+name = "Constant Contact open tracking"
+host_suffix = "rs6.net"
+path = "/on.jsp"
+
+[[rule]]
+name = "Campaign Monitor open tracking"
+host_contains = "cmail"
+path = "/t/"
+
+[[rule]]
+name = "Intercom email tracking"
+host_suffix = "intercom-mail.com"
+
+[[rule]]
+name = "Customer.io open tracking"
+host_suffix = "customeriomail.com"
+path = "/e/o/"
+
+[[rule]]
+name = "Brevo (Sendinblue) open tracking"
+host_contains = "sendib"
+path = "/track/open"
+
+[[rule]]
+name = "Brevo (Sendinblue) open tracking"
+host_suffix = "brevo.com"
+path = "/track/open"
+
+[[rule]]
+name = "Brevo (Sendinblue) open tracking"
+host_suffix = "sendinblue.com"
+path = "/track/open"
+
+[[rule]]
+name = "Iterable open tracking"
+host_suffix = "iterable.com"
+path = "/e/o"
+
+[[rule]]
+name = "Substack open tracking"
+host_suffix = "substack.com"
+path = "/email/open"
+
+[[rule]]
+name = "Beehiiv open tracking"
+host_suffix = "beehiiv.com"
+path = "/ss/o/"
+
+[[rule]]
+name = "Mailtrack open tracking"
+host_suffix = "mailtrack.io"
+
+[[rule]]
+name = "Yesware open tracking"
+host_suffix = "yesware.com"
+
+[[rule]]
+name = "Google Analytics beacon"
+host_suffix = "google-analytics.com"
+path = "collect"
+
+[[rule]]
+name = "Google Analytics beacon"
+host_suffix = "google-analytics.com"
+path = "__utm.gif"
+
+[[rule]]
+name = "Facebook tracking pixel"
+host_suffix = "facebook.com"
+path = "/tr?"
+
+[[rule]]
+name = "Facebook tracking pixel"
+host_suffix = "facebook.com"
+path = "/tr/"
+
+[[rule]]
+name = "LinkedIn Insight tag"
+host_suffix = "px.ads.linkedin.com"
+
+[[generic]]
+contains = "open.gif"
+reason = "path looks like an open-tracking pixel"
+
+[[generic]]
+contains = "pixel.gif"
+reason = "path looks like a tracking pixel"
+
+[[generic]]
+contains = "beacon"
+reason = "path mentions a beacon"
+
+[[generic]]
+contains = "track.gif"
+reason = "path looks like a tracking image"
+
+[[generic]]
+contains = "track.png"
+reason = "path looks like a tracking image"
+
+[[generic]]
+contains = "tracking.gif"
+reason = "path looks like a tracking image"
+
+[[generic]]
+contains = "tracking.png"
+reason = "path looks like a tracking image"
+
+[[generic]]
+contains = "/open?"
+reason = "path looks like an open-tracking request"
+
+[[generic]]
+contains = "/track/open"
+reason = "path looks like open tracking"

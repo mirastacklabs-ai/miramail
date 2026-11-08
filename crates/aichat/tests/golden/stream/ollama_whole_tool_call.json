@@ -1,0 +1,10 @@
+{"events": [
+  {"type": "tool_call_start", "data": {"idx": 0, "id": "call_x1", "name": "mail_stats"}},
+  {"type": "tool_call_args_delta", "data": {"idx": 0, "frag": "{\"folder\":\"INBOX\"}"}},
+  {"type": "tool_call_start", "data": {"idx": 1, "id": "call_x2", "name": "list_accounts"}},
+  {"type": "tool_call_args_delta", "data": {"idx": 1, "frag": "{}"}},
+  {"type": "tool_call_end", "data": {"idx": 0}},
+  {"type": "tool_call_end", "data": {"idx": 1}},
+  {"type": "done", "data": "tool_use"}
+],
+"tool_args": {"0": {"folder": "INBOX"}, "1": {}}}
