@@ -170,7 +170,8 @@ export function swapPanes(ws: Ws, x: string, y: string): Ws {
   const sw = (n: Node): Node => n.t === "leaf"
     ? { ...n, tabs: n.tabs.map((t) => (t === x ? y : t === y ? x : t)), active: n.active === x ? y : n.active === y ? x : n.active }
     : { ...n, a: sw(n.a), b: sw(n.b) };
-  return { ...ws, root: sw(ws.root) };
+  // A swap can move the focused pane into a stack where another tab is in front: bring the focus to the front again.
+  return focusPane({ ...ws, root: sw(ws.root) }, ws.focus ?? x);
 }
 
 export function toggleZoom(ws: Ws, id: string | null = ws.focus): Ws {
@@ -283,7 +284,10 @@ export function stepGroup(groups: TabGroup[], activeKey: string | null, delta: n
 export const groupFocusId = (g: TabGroup): string => (g.key === MAIL_KEY && g.ids.includes("mailbox") ? "mailbox" : g.ids[0]);
 
 // ---- persistence ----
-const MAX_PANES = 64, MAX_DEPTH = 32;
+/** Load limits. MAX_PANES leaves headroom over the drafts table cap (200, app/src-tauri/src/drafts.rs, every draft is a
+ *  registered pane) plus the fixed panes; MAX_DEPTH and MAX_LAYOUT_BYTES must match drafts.rs (the backend refuses to save
+ *  a layout beyond them). They only guard against hostile or corrupt data. */
+const MAX_PANES = 256, MAX_DEPTH = 96, MAX_JSON = 256 * 1024;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** JSON for the layout row. Draft-kind payloads are dropped (they live in the drafts table). */
@@ -295,9 +299,31 @@ export function serialize(ws: Ws): string {
   return JSON.stringify({ v: 1, root: ws.root, panes, parked: ws.parked, focus: ws.focus, zoom: ws.zoom });
 }
 
+/** Every pane id below `n` (iterative: safe for any depth), validated. Null when a leaf is malformed. */
+function collectIds(n: unknown, seen: Set<string>, out: string[]): boolean {
+  const stack: unknown[] = [n];
+  while (stack.length) {
+    const o = stack.pop() as Record<string, unknown> | null;
+    if (!o || typeof o !== "object") return false;
+    if (o.t === "leaf") {
+      if (!Array.isArray(o.tabs) || !o.tabs.length || o.tabs.length > MAX_PANES) return false;
+      for (const t of o.tabs) { if (typeof t !== "string" || !ID_RE.test(t) || seen.has(t)) return false; seen.add(t); out.push(t); }
+    } else if (o.t === "split") {
+      stack.push(o.b, o.a);
+    } else return false;
+  }
+  return true;
+}
+
 function validNode(n: unknown, depth: number, seen: Set<string>): Node | null {
-  if (!n || typeof n !== "object" || depth > MAX_DEPTH) return null;
+  if (!n || typeof n !== "object") return null;
   const o = n as Record<string, unknown>;
+  // Deeper than the limit: do not drop the layout, fold the rest of this branch into one tab stack so every pane survives.
+  if (depth > MAX_DEPTH) {
+    const ids: string[] = [];
+    if (!collectIds(o, seen, ids) || !ids.length) return null;
+    return { t: "leaf", tabs: ids.slice(0, MAX_PANES), active: ids[0] };
+  }
   if (o.t === "leaf") {
     if (!Array.isArray(o.tabs) || !o.tabs.length || o.tabs.length > MAX_PANES || typeof o.active !== "string") return null;
     for (const t of o.tabs) { if (typeof t !== "string" || !ID_RE.test(t) || seen.has(t)) return null; seen.add(t); }
@@ -315,7 +341,7 @@ function validNode(n: unknown, depth: number, seen: Set<string>): Node | null {
 
 /** Parse + validate persisted JSON. Returns null for anything inconsistent (caller falls back to the default layout). */
 export function parse(json: string | null | undefined): Ws | null {
-  if (typeof json !== "string" || json.length > 65536) return null;
+  if (typeof json !== "string" || json.length > MAX_JSON) return null;
   let o: any;
   try { o = JSON.parse(json); } catch { return null; }
   if (!o || typeof o !== "object" || o.v !== 1 || !o.panes || typeof o.panes !== "object" || Array.isArray(o.panes)) return null;
@@ -323,8 +349,8 @@ export function parse(json: string | null | undefined): Ws | null {
   let root: Node | null = null;
   if (o.root !== null) { root = validNode(o.root, 0, seen); if (!root) return null; }
   const panes: Record<string, Pane> = {};
-  const keys = Object.keys(o.panes);
-  if (keys.length > MAX_PANES) return null;
+  // Over the cap (only hostile data gets here): keep the panes the tree shows first, drop the surplus unplaced ones.
+  const keys = Object.keys(o.panes).sort((x, y) => Number(seen.has(y)) - Number(seen.has(x))).slice(0, Math.max(MAX_PANES, seen.size));
   for (const k of keys) {
     const p = o.panes[k];
     if (!p || typeof p !== "object" || p.id !== k || !ID_RE.test(k) || !PANE_KINDS.includes(p.kind) || typeof p.title !== "string") return null;
@@ -333,12 +359,15 @@ export function parse(json: string | null | undefined): Ws | null {
   const parked: string[] = [];
   if (!Array.isArray(o.parked)) return null;
   for (const id of o.parked) {
+    if (typeof id === "string" && !panes[id] && Object.hasOwn(o.panes, id)) continue; // cut by the registry cap
     if (typeof id !== "string" || !panes[id] || seen.has(id) || parked.includes(id)) return null;
     parked.push(id);
   }
   for (const id of seen) if (!panes[id]) return null;
   const focus = typeof o.focus === "string" && seen.has(o.focus) ? o.focus : visibleIds(root)[0] ?? null;
   const zoom = typeof o.zoom === "string" && seen.has(o.zoom) ? o.zoom : null;
+  // A folded branch (or an old file) can leave the saved focus behind another tab: bring it to the front.
+  if (root && focus && !visibleIds(root).includes(focus)) root = mapLeaf(root, focus, (l) => ({ ...l, active: focus }));
   return { root, panes, parked, focus, zoom };
 }
 export function deserialize(json: string | null | undefined, fallback: () => Ws = defaultWs): Ws {

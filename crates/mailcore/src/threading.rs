@@ -119,8 +119,7 @@ impl Dsu {
 }
 
 fn has_reply_prefix(subject: &str) -> bool {
-    let l = subject.trim_start().to_ascii_lowercase();
-    ["re:", "fwd:", "fw:", "aw:", "sv:", "wg:"].iter().any(|p| l.starts_with(p))
+    crate::search::strip_reply_marker(subject.trim_start()).is_some()
 }
 
 fn joinable_subject(norm: &str) -> bool {
@@ -465,6 +464,16 @@ mod tests {
         let k = thread_keys(&items, ME);
         assert!(!same(&k, 0, 1), "two plain mails with the same subject do not merge");
         assert_ne!(k[0], k[1]);
+    }
+
+    #[test]
+    fn subject_fallback_knows_outlook_style_reply_markers() {
+        for subj in ["RE : Project plan", "Re[2]: Project plan", "Re(2): Project plan", "AW : Project plan", "SV: Project plan"] {
+            let mut items = vec![it("p1@x", "", "", "Project plan", "ann@x.org", 100), it("p2@x", "", "", subj, ME, 100 + DAY)];
+            items[1].to = "Ann <ann@x.org>".into();
+            let k = thread_keys(&items, ME);
+            assert!(same(&k, 0, 1), "{subj}");
+        }
     }
 
     #[test]

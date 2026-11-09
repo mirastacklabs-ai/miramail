@@ -193,3 +193,11 @@ import { readFileSync } from "node:fs";
     assert.ok(src.includes("getCurrentWebviewWindow().listen"));
   });
 }
+
+test("sanitizeCompose keeps a reply notice (capped) and drops a non-string one", () => {
+  const base = { account: "me@x.org", to: "a@b.c", cc: "", bcc: "", subject: "Hi", text: "t", inReplyTo: null, showCc: false, base: "[]" };
+  assert.equal(D.sanitizeCompose({ ...base, replyNotice: "Replies go to a@b.c, not the sender (x@y.z)." }).replyNotice, "Replies go to a@b.c, not the sender (x@y.z).");
+  assert.equal(D.sanitizeCompose({ ...base, replyNotice: "n".repeat(5000) }).replyNotice.length, 1000);
+  assert.ok(!("replyNotice" in D.sanitizeCompose({ ...base, replyNotice: 7 })));
+  assert.ok(!("replyNotice" in D.sanitizeCompose(base)));
+});

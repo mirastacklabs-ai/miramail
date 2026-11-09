@@ -335,6 +335,7 @@ pub async fn get_message(
             .map(|a| WireAttachment { id: a.id.clone(), name: a.name.clone(), mime: a.mime.clone(), size: a.size })
             .collect(),
         cc: parsed.headers.cc.iter().map(Address::from).collect(),
+        reply_to: parsed.headers.reply_to.iter().map(Address::from).collect(),
         references,
         invite: crate::cal_invite::invite_for_message(&cal, &raw, &parsed.attachments, &account),
     })

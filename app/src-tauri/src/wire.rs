@@ -229,6 +229,8 @@ pub struct MessageBody {
     pub images: Vec<WireImage>,
     pub attachments: Vec<WireAttachment>,
     pub cc: Vec<Address>,
+    /// `Reply-To` mailboxes (empty when absent). Manual Reply honours them and Compose warns when they differ from From.
+    pub reply_to: Vec<Address>,
     pub references: Option<String>,
     /// First `text/calendar` part / `.ics` attachment, parsed (null when absent or unusable).
     pub invite: Option<calendar::Invite>,
@@ -514,12 +516,14 @@ mod tests {
             images: vec![],
             attachments: vec![],
             cc: vec![],
+            reply_to: vec![],
             references: None,
             invite: None,
         };
         let v = serde_json::to_value(&body).unwrap();
         assert!(v.get("invite").is_some() && v["invite"].is_null(), "invite must be present as null");
         assert!(v.get("blockedRemoteCount").is_some() && v.get("references").is_some(), "existing fields kept");
+        assert!(v["replyTo"].as_array().is_some_and(|a| a.is_empty()), "replyTo must be present as []");
 
         let ics = b"BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:u@x\r\nDTSTAMP:20261101T100000Z\r\nDTSTART:20261110T090000Z\r\nDTEND:20261110T100000Z\r\nSUMMARY:S\r\nORGANIZER:mailto:o@x.org\r\nATTENDEE;PARTSTAT=TENTATIVE:mailto:a@x.org\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
         body.invite = calendar::itip::invite_from_ics(ics, &["a@x.org".to_string()], "3", true).unwrap();

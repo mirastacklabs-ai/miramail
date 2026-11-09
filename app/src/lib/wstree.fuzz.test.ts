@@ -60,9 +60,8 @@ function step(ws, r, next) {
     case 3: { const id = inTree(); return [`park ${id}`, T.parkPane(ws, id)]; }
     case 4: { const id = ws.parked.length ? pick(r, ws.parked) : "nope"; return [`unpark ${id}`, T.unparkPane(ws, id, { zone: pick(r, ZONES) })]; }
     case 5: { const a = any(), b = inTree(), z = pick(r, ZONES); return [`dock ${a}->${b}@${z}`, T.dockPane(ws, a, b, z)]; }
-    // Only visible panes: swapping the focused pane with a background tab hides the focus (swapPanes has no caller
-    // in the app; noted in docs/TEST_PLAN.md).
-    case 6: { const v = T.visibleIds(ws.root); const a = pick(r, v.length ? v : ["nope"]), b = pick(r, v.length ? v : ["nope"]); return [`swap ${a} ${b}`, T.swapPanes(ws, a, b)]; }
+    // Any pane in the tree, background tabs included (B7: the focus must stay on a visible pane).
+    case 6: { const a = inTree(), b = inTree(); return [`swap ${a} ${b}`, T.swapPanes(ws, a, b)]; }
     case 7: { const id = inTree(); return [`zoom ${id}`, T.toggleZoom(ws, id)]; }
     case 8: { const id = any(); return [`focus ${id}`, T.focusPane(ws, id)]; }
     case 9: { const d = r() < 0.5 ? 1 : -1; return [`step ${d}`, T.focusStep(ws, d)]; }
@@ -123,9 +122,57 @@ test("parking the focused pane moves focus to a pane the user can see", () => {
   assert.deepEqual(out.parked, ["x"]);
 });
 
-test("layouts with many panes or a deep split survive a reload instead of resetting", { todo: "open bug, see docs/TEST_PLAN.md (B3)" }, () => {
-  // 65 drafts parked in the tray (the drafts table allows 200) -> more than MAX_PANES registry entries.
+const draftPane = (i) => ({ id: `c${i}`, kind: "compose", title: "d", dirty: true, payload: null });
+const park = (ws, n) => { for (let i = 0; i < n; i++) ws = { ...ws, panes: { ...ws.panes, [`c${i}`]: draftPane(i) }, parked: [...ws.parked, `c${i}`] }; return ws; };
+
+test("layouts with many panes or a deep split survive a reload instead of resetting", () => {
+  // The drafts table allows 200 drafts, all registered as parked panes (plus the fixed panes).
+  for (const n of [65, 200]) {
+    const ws = park(T.defaultWs(), n);
+    const back = T.parse(T.serialize(ws));
+    assert.ok(back, `${n} parked drafts: layout rejected`);
+    assert.equal(back.parked.length, n);
+    assert.equal(Object.keys(back.panes).length, n + 2);
+  }
+  // 200 drafts with 80-character titles still fit the size limit.
+  let big = T.defaultWs();
+  for (let i = 0; i < 200; i++) big = { ...big, panes: { ...big.panes, [`c${i}`]: { ...draftPane(i), title: "t".repeat(200) } }, parked: [...big.parked, `c${i}`] };
+  assert.ok(T.parse(T.serialize(big)), "200 drafts with maximal titles");
+  // A split chain deeper than the old limit of 32 (every open pane docked to the right of the last one).
   let ws = T.defaultWs();
-  for (let i = 0; i < 65; i++) ws = { ...ws, panes: { ...ws.panes, [`c${i}`]: { id: `c${i}`, kind: "compose", title: "d", dirty: true, payload: null } }, parked: [...ws.parked, `c${i}`] };
-  assert.ok(T.parse(T.serialize(ws)), "65 parked drafts: layout rejected");
+  for (let i = 0; i < 40; i++) ws = T.openPane(ws, { id: `p${i}`, kind: "aichat", title: "x", dirty: false, payload: null });
+  const back = T.parse(T.serialize(ws));
+  assert.ok(back, "40-deep tree rejected");
+  assert.deepEqual(T.paneIds(back.root), T.paneIds(ws.root));
+});
+
+test("a layout beyond the load limits degrades instead of being dropped", () => {
+  // Tree deeper than MAX_DEPTH: the deep branch is folded into one tab stack, every pane survives, nothing duplicated.
+  let ws = T.defaultWs();
+  for (let i = 0; i < 150; i++) ws = T.openPane(ws, { id: `p${i}`, kind: "aichat", title: "x", dirty: false, payload: null });
+  const json = T.serialize(ws);
+  const back = T.parse(json);
+  assert.ok(back, "too-deep tree: layout dropped");
+  assert.deepEqual([...T.paneIds(back.root)].sort(), [...T.paneIds(ws.root)].sort());
+  assert.ok(T.visibleIds(back.root).includes(back.focus));
+  // Hostile: far more panes than any user can have. Still loads (surplus unplaced panes cut), never throws.
+  const huge = JSON.parse(T.serialize(T.defaultWs()));
+  for (let i = 0; i < 600; i++) { huge.panes[`h${i}`] = { id: `h${i}`, kind: "compose", title: "d", payload: null }; huge.parked.push(`h${i}`); }
+  const loaded = T.parse(JSON.stringify(huge));
+  assert.ok(loaded, "600 parked panes: layout dropped");
+  assert.ok(Object.keys(loaded.panes).length <= 256);
+  assert.ok(loaded.panes.mailbox && loaded.panes.reader);
+  for (const id of loaded.parked) assert.ok(loaded.panes[id]);
+});
+
+test("swapPanes keeps the focus on a visible pane when the focused pane moves behind another tab (B7)", () => {
+  let ws = T.defaultWs();
+  ws = T.openPane(ws, { id: "p", kind: "aichat", title: "p", dirty: false, payload: null }, { near: "reader", zone: "center" });
+  ws = T.openPane(ws, { id: "q", kind: "aichat", title: "q", dirty: false, payload: null }, { near: "reader", zone: "center" });
+  // reader stack = [reader, q, p] with q active; focus mailbox, swap mailbox with background tab p.
+  ws = T.focusPane(ws, "mailbox");
+  const out = T.swapPanes(ws, "mailbox", "p");
+  assert.equal(out.focus, "mailbox");
+  assert.ok(T.visibleIds(out.root).includes("mailbox"), "focused pane is hidden after swap");
+  assert.ok(T.visibleIds(out.root).includes(out.focus));
 });

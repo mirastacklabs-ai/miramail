@@ -15,6 +15,8 @@ export interface ComposePayload {
   /** Id of the AI draft this pane was opened from (so opening it again focuses this pane), and the app's notes on it. */
   aiDraftId?: number;
   aiWarnings?: string[];
+  /** Manual reply whose Reply-To differs from From: Compose shows it as a visible notice (phishing guard). */
+  replyNotice?: string;
   /** Composer editor state. `text` always holds the plain rendering; `html` is the rich body when mode is "rich". */
   html?: string;
   mode?: "plain" | "rich";

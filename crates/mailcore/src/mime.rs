@@ -16,6 +16,9 @@ pub struct MessageHeaders {
     pub from: Vec<EmailAddress>,
     pub to: Vec<EmailAddress>,
     pub cc: Vec<EmailAddress>,
+    /// `Reply-To` mailboxes (empty when absent or unparseable). Replies honour it; Compose flags a differing address.
+    #[serde(default)]
+    pub reply_to: Vec<EmailAddress>,
     /// Unix seconds (UTC), if the Date header parsed.
     pub date: Option<i64>,
 }
@@ -82,6 +85,7 @@ fn headers_of(m: &mail_parser::Message<'_>) -> MessageHeaders {
         from: addrs(m.from()),
         to: addrs(m.to()),
         cc: addrs(m.cc()),
+        reply_to: addrs(m.reply_to()),
         date: m.date().filter(|d| d.is_valid()).map(|d| d.to_timestamp()),
     }
 }
@@ -316,6 +320,29 @@ mod tests {
     use super::*;
 
     const ALT: &str = "From: \"Ann Example\" <ann@example.org>\r\nTo: bob@example.net, Carl <carl@example.net>\r\nSubject: =?UTF-8?B?SGVsbG8g8J+MjQ==?=\r\nDate: Tue, 03 Jun 2025 10:00:00 +0000\r\nMessage-ID: <abc@example.org>\r\nIn-Reply-To: <prev@example.org>\r\nReferences: <root@example.org> <prev@example.org>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=XX\r\n\r\n--XX\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nplain body\r\n--XX\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>html <b>body</b></p>\r\n--XX--\r\n";
+
+    fn reply_to_of(h: &str) -> Vec<EmailAddress> {
+        parse_message(format!("From: a@x.org\r\n{h}Subject: s\r\n\r\nbody").as_bytes()).unwrap().headers.reply_to
+    }
+
+    #[test]
+    fn reply_to_header_is_parsed() {
+        let r = reply_to_of("Reply-To: Support Desk <help@desk.example>\r\n");
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].address, "help@desk.example");
+        assert_eq!(r[0].name.as_deref(), Some("Support Desk"));
+        // Several addresses, folded header, upper-case header name.
+        let r = reply_to_of("REPLY-TO: one@x.org,\r\n two@x.org\r\n");
+        assert_eq!(r.iter().map(|a| a.address.as_str()).collect::<Vec<_>>(), ["one@x.org", "two@x.org"]);
+    }
+
+    #[test]
+    fn missing_or_garbage_reply_to_is_empty() {
+        assert!(reply_to_of("").is_empty());
+        assert!(reply_to_of("Reply-To:\r\n").is_empty());
+        assert!(reply_to_of("Reply-To: not an address at all\r\n").is_empty());
+        assert!(reply_to_of("Reply-To: <>\r\n").is_empty());
+    }
 
     #[test]
     fn multipart_alternative() {

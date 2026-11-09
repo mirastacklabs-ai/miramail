@@ -22,7 +22,9 @@ export interface ImageInfo {
 }
 export interface MessageBody {
   summary: MessageSummary; text: string | null; html: string | null;
-  blockedRemoteCount: number; images: ImageInfo[]; attachments: Attachment[]; cc: Address[]; references: string | null;
+  blockedRemoteCount: number; images: ImageInfo[]; attachments: Attachment[]; cc: Address[];
+  /** Reply-To mailboxes (empty when absent). */
+  replyTo: Address[]; references: string | null;
   invite: Invite | null;
 }
 export interface Outgoing {

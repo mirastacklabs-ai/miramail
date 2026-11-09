@@ -33,11 +33,17 @@ test("cleanAddress: visible characters, unicode and odd input are never altered 
   assert.equal(cleanAddress(long), long);
 });
 
-test("cleanAddress: other invisible format characters are currently NOT removed", () => {
-  // Pins today's behaviour (kept identical when this was moved out of Onboarding.svelte). Soft hyphen, invisible
-  // operators and bidi isolates pass through, and the backend then fails sign-in with a generic error.
-  // Recorded as a gap in docs/TEST_PLAN.md (G1).
-  for (const c of ["­", "⁡", "⁦", "⁩"]) assert.equal(cleanAddress(`ann${c}@example.org`), `ann${c}@example.org`);
+test("cleanAddress: every other invisible format character is removed too (G1)", () => {
+  const cps = [0x00ad, 0x034f, 0x061c, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180c, 0x180d, 0x180e, 0x180f, 0x2061, 0x2062, 0x2063, 0x2064,
+    0x2066, 0x2067, 0x2068, 0x2069, 0x206a, 0x206f, 0x3164, 0xfe00, 0xfe0f, 0xffa0, 0xe0001, 0xe0041, 0xe0100, 0xe01ef];
+  for (const cp of cps) {
+    const c = String.fromCodePoint(cp);
+    assert.equal(cleanAddress(`${c}ann${c}@exa${c}mple.org${c}`), "ann@example.org", `U+${cp.toString(16)}`);
+  }
+  // Variation selectors / tag characters do not damage the surrounding (valid) non-ASCII text.
+  assert.equal(cleanAddress("jürgen\u{E0100}@münchen.de"), "jürgen@münchen.de");
+  assert.equal(cleanAddress("\u{1F600}@example.org"), "\u{1F600}@example.org"); // an emoji itself is not touched
+  assert.equal(cleanAddress("josé@example.org"), "josé@example.org");
 });
 
 test("Onboarding.svelte uses cleanAddress for the address it submits", () => {

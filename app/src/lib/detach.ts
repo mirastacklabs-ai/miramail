@@ -49,6 +49,7 @@ export function sanitizeCompose(p: unknown): Record<string, unknown> | null {
   if (typeof p.aiDraftId === "number" && Number.isFinite(p.aiDraftId)) out.aiDraftId = p.aiDraftId;
   const w = strs(p.aiWarnings);
   if (w?.length) out.aiWarnings = w;
+  if (typeof p.replyNotice === "string" && p.replyNotice) out.replyNotice = p.replyNotice.slice(0, 1000);
   // Composer editor state (rich body, mode, signature, sender, forward source).
   if (typeof p.html === "string") out.html = p.html;
   if (typeof p.seedHtml === "string") out.seedHtml = p.seedHtml;

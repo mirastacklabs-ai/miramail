@@ -206,9 +206,9 @@ test("corrupt layouts fall back to the default", () => {
     assert.equal(T.parse(b), null, b.slice(0, 60));
     assert.deepEqual(T.deserialize(b), T.defaultWs());
   }
-  // too deep
+  // too deep (beyond MAX_DEPTH = 96) and not matching the registry: still rejected (the tree names panes that are not registered)
   let n = { t: "leaf", tabs: ["mailbox"], active: "mailbox" };
-  for (let i = 0; i < 40; i++) n = { t: "split", dir: "row", ratio: 0.5, a: n, b: { t: "leaf", tabs: ["x" + i], active: "x" + i } };
+  for (let i = 0; i < 120; i++) n = { t: "split", dir: "row", ratio: 0.5, a: n, b: { t: "leaf", tabs: ["x" + i], active: "x" + i } };
   assert.equal(T.parse(JSON.stringify({ ...good, root: n })), null);
 });
 

@@ -35,6 +35,7 @@
   let showCc = $state(init.showCc || !!init.bcc);
   const aiDraft = !!init.aiDraft;
   const aiDraftId = init.aiDraftId, aiWarnings = init.aiWarnings ?? [];
+  const replyNotice = init.replyNotice ?? "";
   let sending = $state(false);
   // Send later: a small chooser next to Send (presets + custom time). The message is stored in the Outbox as scheduled.
   let laterOpen = $state(false);
@@ -264,6 +265,7 @@
     account: init.account, to, cc, bcc, subject, text, inReplyTo: init.inReplyTo, showCc, base, mode, kind, sigId, sigApplied,
     ...(mode === "rich" ? { html: htmlForDraft(html) } : {}), ...(from ? { from } : {}), ...(fwd ? { fwd: $state.snapshot(fwd) } : {}),
     ...(aiDraft ? { aiDraft: true, ...(aiDraftId != null ? { aiDraftId } : {}), ...(aiWarnings.length ? { aiWarnings } : {}) } : {}),
+    ...(replyNotice ? { replyNotice } : {}),
   });
   $effect(() => {
     const payload = makePayload();
@@ -395,6 +397,7 @@
         {#if aiWarnings.length}<ul class="ainotes">{#each aiWarnings as w}<li>{w}</li>{/each}</ul>{/if}
       </div>
     {/if}
+    {#if replyNotice}<div class="aibanner" role="note" data-testid="reply-to-notice">{replyNotice}</div>{/if}
     <div class="form">
       {#if aiDraft}<div class="r"><span class="label">From</span><span class="mono from" data-testid="ai-from">{init.account ?? ""}</span></div>
       {:else if fromOptions.length > 1}

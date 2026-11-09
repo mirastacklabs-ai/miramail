@@ -52,22 +52,34 @@ export function buildSrcdoc(html: string, allowRemote: boolean, baseCss = ""): s
   return `<meta http-equiv="Content-Security-Policy" content="${csp}"><style>html{background:#fff;color:#1c1c1c}${baseCss || "body{margin:0;padding:16px;font:14px/1.5 -apple-system,system-ui,sans-serif;overflow-wrap:anywhere}"}img{max-width:100%;height:auto}</style>${html}`;
 }
 
-export const reSubject = (s: string) => (/^\s*re:/i.test(s) ? s.trim() : `Re: ${s.trim()}`.trim());
+export const reSubject = (s: string) => (/^\s*re\s*(?:\[\d+\]|\(\d+\))?\s*:/i.test(s) ? s.trim() : `Re: ${s.trim()}`.trim());
 
-export function replyDraft(b: MessageBody, all: boolean, me: string) {
+/** `aliases` = the account's saved sender identities: mail from them is mine too. */
+export function replyDraft(b: MessageBody, all: boolean, me: string, aliases: readonly string[] = []) {
   const s = b.summary;
   const from = s.from;
   const key = (a: string) => a.trim().toLowerCase();
   const self = key(me);
+  const mineSet = new Set([self, ...aliases.map(key)].filter(Boolean));
   // Replying to a message I sent (e.g. from Sent) goes to the people I wrote to, not back to me.
-  const mine = !!from && key(from.address) === self;
+  const mine = !!from && mineSet.has(key(from.address));
   const to = new Map<string, string>();
   const cc = new Map<string, string>();
-  const add = (m: Map<string, string>, a: string) => { const k = key(a); if (k && k !== self && !to.has(k) && !cc.has(k)) m.set(k, a); };
+  const add = (m: Map<string, string>, a: string) => { const k = key(a); if (k && !mineSet.has(k) && !to.has(k) && !cc.has(k)) m.set(k, a); };
+  // Reply-To (usable addresses only; garbage is ignored) is where a reply to someone else's message goes.
+  const replyTo = (b.replyTo ?? []).filter((a) => validAddr(a.address));
+  let notice: string | null = null;
   if (mine) {
     for (const a of s.to) add(to, a.address);
     if (!to.size) to.set(self, from!.address); // a note to myself: answer myself
-  } else if (from) to.set(key(from.address), from.address);
+  } else {
+    for (const a of replyTo) add(to, a.address);
+    if (!to.size && from) to.set(key(from.address), from.address); // no usable Reply-To (or it is only me): the sender
+    // Same rule as the MIRA draft path (aichat drafts.rs): flag a Reply-To that is not the sender.
+    if (replyTo.length && [...to.keys()].some((k) => !from || k !== key(from.address))) {
+      notice = `Replies go to ${[...to.values()].join(", ")}, not the sender (${from ? from.address : "unknown"}).`;
+    }
+  }
   if (all) {
     for (const a of [...s.to, ...b.cc]) add(cc, a.address);
   }
@@ -80,6 +92,8 @@ export function replyDraft(b: MessageBody, all: boolean, me: string) {
     subject: reSubject(s.subject),
     text: `\n\nOn ${when}, ${who} wrote:\n${quoted}\n`,
     inReplyTo: s.messageId ? { messageId: s.messageId, references: b.references } : null,
+    /** Set when Reply-To sends the answer somewhere other than the sender (Compose shows it as a notice). */
+    notice,
   };
 }
 
@@ -87,7 +101,7 @@ export function forwardDraft(b: MessageBody) {
   const s = b.summary;
   const when = s.date != null ? new Date(s.date * 1000).toLocaleString([], { dateStyle: "long", timeStyle: "short" }) : "";
   const head = ["---------- Forwarded message ----------", `From: ${s.from ? addrFull(s.from) : "Unknown sender"}`, when && `Date: ${when}`, `Subject: ${s.subject}`, s.to.length ? `To: ${s.to.map(addrFull).join(", ")}` : ""].filter(Boolean).join("\n");
-  return { to: [] as string[], cc: [] as string[], bcc: [] as string[], subject: /^\s*fwd?:/i.test(s.subject) ? s.subject.trim() : `Fwd: ${s.subject.trim()}`.trim(), text: `\n\n${head}\n\n${(b.text ?? "").replace(/\r\n/g, "\n").trimEnd()}\n`, inReplyTo: null };
+  return { to: [] as string[], cc: [] as string[], bcc: [] as string[], subject: /^\s*fwd?\s*(?:\[\d+\]|\(\d+\))?\s*:/i.test(s.subject) ? s.subject.trim() : `Fwd: ${s.subject.trim()}`.trim(), text: `\n\n${head}\n\n${(b.text ?? "").replace(/\r\n/g, "\n").trimEnd()}\n`, inReplyTo: null };
 }
 
 /** Split a recipients field on , ; or newline, but not inside a quoted display name ("Doe, John" <j@x.org>). */

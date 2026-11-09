@@ -5,8 +5,8 @@ import { replyDraft, forwardDraft, reSubject, splitAddrs, validAddr, fmtSize, bu
 
 const ME = "me@example.org";
 const A = (address, name = null) => ({ address, name });
-function body({ from = A("ann@example.net", "Ann"), to = [A(ME)], cc = [], subject = "Plan", text = "line 1\r\n> quoted\r\nline 3", messageId = "m1@example.net", references = null, date = 1_750_000_000 } = {}) {
-  return { summary: { from, to, subject, messageId, date, folder: "INBOX", uid: 7 }, text, html: null, blockedRemoteCount: 0, images: [], attachments: [], cc, references, invite: null };
+function body({ from = A("ann@example.net", "Ann"), to = [A(ME)], cc = [], subject = "Plan", text = "line 1\r\n> quoted\r\nline 3", messageId = "m1@example.net", references = null, date = 1_750_000_000, replyTo = [] } = {}) {
+  return { summary: { from, to, subject, messageId, date, folder: "INBOX", uid: 7 }, text, html: null, blockedRemoteCount: 0, images: [], attachments: [], cc, replyTo, references, invite: null };
 }
 
 test("reply goes to the sender only; reply-all adds the other recipients and never me", () => {
@@ -94,4 +94,62 @@ test("addrLabel", () => {
   assert.equal(addrLabel(null), "Unknown sender");
   assert.equal(addrLabel(A("a@x.org", "  ")), "a@x.org");
   assert.equal(addrLabel(A("a@x.org", " Ann ")), "Ann");
+});
+
+test("Reply-To is honoured by Reply and Reply-all and a notice names both addresses", () => {
+  const b = body({ to: [A(ME), A("bob@example.net")], replyTo: [A("help@desk.example", "Desk")] });
+  const r = replyDraft(b, false, ME);
+  assert.deepEqual(r.to, ["help@desk.example"]);
+  assert.equal(r.notice, "Replies go to help@desk.example, not the sender (ann@example.net).");
+  const all = replyDraft(b, true, ME);
+  assert.deepEqual(all.to, ["help@desk.example"]);
+  assert.deepEqual(all.cc, ["bob@example.net"]);
+  assert.ok(all.notice);
+});
+
+test("no notice when Reply-To is the sender (any case) or absent", () => {
+  assert.equal(replyDraft(body(), false, ME).notice, null);
+  const same = replyDraft(body({ replyTo: [A("ANN@example.net")] }), false, ME);
+  assert.deepEqual(same.to, ["ANN@example.net"]);
+  assert.equal(same.notice, null);
+});
+
+test("multiple Reply-To addresses all receive the reply; garbage Reply-To is ignored", () => {
+  const m = replyDraft(body({ replyTo: [A("a@x.org"), A("b@x.org"), A("A@X.org")] }), false, ME);
+  assert.deepEqual(m.to, ["a@x.org", "b@x.org"]);
+  assert.match(m.notice, /a@x.org, b@x.org/);
+  const g = replyDraft(body({ replyTo: [A("not an address"), A(""), A("<>")] }), false, ME);
+  assert.deepEqual(g.to, ["ann@example.net"]);
+  assert.equal(g.notice, null);
+  assert.deepEqual(replyDraft(body({ replyTo: undefined }), false, ME).to, ["ann@example.net"]);
+});
+
+test("Reply-To that is only me falls back to the sender; own sent mail ignores Reply-To; missing From is flagged", () => {
+  const meOnly = replyDraft(body({ replyTo: [A(ME)] }), false, ME);
+  assert.deepEqual(meOnly.to, ["ann@example.net"]);
+  assert.equal(meOnly.notice, null);
+  const sent = replyDraft(body({ from: A(ME), to: [A("bob@example.net")], replyTo: [A("evil@x.org")] }), false, ME);
+  assert.deepEqual(sent.to, ["bob@example.net"]);
+  assert.equal(sent.notice, null);
+  const nofrom = replyDraft(body({ from: null, replyTo: [A("r@x.org")] }), false, ME);
+  assert.deepEqual(nofrom.to, ["r@x.org"]);
+  assert.match(nofrom.notice, /unknown/);
+});
+
+test("reSubject / forward subject recognise RE :, Re[2]:, Re(2): and do not stack another prefix", () => {
+  for (const v of ["RE : Plan", "Re[2]: Plan", "Re(2): Plan", "re:Plan"]) assert.equal(reSubject(v), v, v);
+  assert.equal(reSubject("Plan"), "Re: Plan");
+  assert.equal(reSubject("Report: Plan"), "Re: Report: Plan");
+  for (const v of ["Fwd : Plan", "FW: Plan", "Fwd[2]: Plan"]) assert.equal(forwardDraft(body({ subject: v })).subject, v, v);
+});
+
+test("saved identities count as me: replying to mail sent from an alias goes to its recipients (G2)", () => {
+  const alias = "sales@example.org";
+  const b = body({ from: A("Sales@Example.org"), to: [A("bob@example.net")], cc: [A(alias), A("dee@example.net")] });
+  assert.deepEqual(replyDraft(b, false, ME, [alias]).to, ["bob@example.net"]);
+  assert.deepEqual(replyDraft(b, true, ME, [alias]).cc, ["dee@example.net"]);
+  // Without the alias list it is treated as a stranger (the old behaviour).
+  assert.deepEqual(replyDraft(b, false, ME).to, ["Sales@Example.org"]);
+  // Reply-all from a stranger never lists my alias.
+  assert.deepEqual(replyDraft(body({ to: [A(ME), A(alias)] }), true, ME, [alias]).cc, []);
 });

@@ -152,7 +152,7 @@ export const mock = {
     const skip = a.skipTrackers ?? true;
     if (!a.allowRemoteImages) { if (html) html = html.replace(/<img [^>]*src="https?:[^"]*"[^>]*>/g, ""); }
     else if (skip && html) html = html.replace(/<img [^>]*src="https?:\/\/us1\.list-manage\.com[^"]*"[^>]*>/g, "");
-    return wait({ summary: m.s, text: m.text, html, blockedRemoteCount: a.allowRemoteImages ? 0 : m.blocked, images, attachments: m.att, cc: m.s.uid === 1 ? [{ name: "Charles", address: "charles@engine.example" }] : [], references: null, invite: m.s.uid === 3 && m.s.folder === "INBOX" ? mockInvite() : null });
+    return wait({ summary: m.s, text: m.text, html, blockedRemoteCount: a.allowRemoteImages ? 0 : m.blocked, images, attachments: m.att, replyTo: [], cc: m.s.uid === 1 ? [{ name: "Charles", address: "charles@engine.example" }] : [], references: null, invite: m.s.uid === 3 && m.s.folder === "INBOX" ? mockInvite() : null });
   },
   get_attachment: (): Promise<AttachmentData> => wait({ name: "file.txt", mime: "text/plain", dataBase64: "aGVsbG8=" }),
   async set_flag(a: { folder: string; uid: number; flag: FlagName; value: boolean }) {

@@ -10,9 +10,12 @@ use std::sync::{Mutex, MutexGuard};
 use tauri::State;
 
 pub const MAX_DRAFT_BYTES: usize = 1024 * 1024;
-pub const MAX_LAYOUT_BYTES: usize = 64 * 1024;
+/// Must match MAX_JSON / MAX_DEPTH (= MAX_TREE_DEPTH here) / MAX_PANES in app/src/lib/wstree.ts: 200 drafts are 200 registered panes.
+pub const MAX_LAYOUT_BYTES: usize = 256 * 1024;
 const MAX_DRAFTS: i64 = 200;
 const MAX_DEPTH: usize = 40;
+/// Depth limit for a layout tree, same as MAX_DEPTH in wstree.ts (serde_json itself refuses nesting beyond 128 levels).
+const MAX_TREE_DEPTH: usize = 96;
 const KINDS: [&str; 2] = ["compose", "event"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -56,7 +59,7 @@ fn depth_ok(v: &Value, depth: usize) -> bool {
 
 /// Structural check of a persisted tree node (mirrors `parse` in app/src/lib/wstree.ts).
 fn node_ok(n: &Value, depth: usize) -> bool {
-    if depth > MAX_DEPTH {
+    if depth > MAX_TREE_DEPTH {
         return false;
     }
     match n.get("t").and_then(Value::as_str) {
@@ -308,6 +311,27 @@ mod tests {
         ] {
             assert!(s.save_layout(bad).is_err(), "{bad}");
         }
+        // B3: a layout with the maximum number of drafts (200 registered panes) and a deep split tree must be storable.
+        let mut panes = String::new();
+        let mut parked = String::new();
+        for i in 0..200 {
+            let sep = if i == 0 { "" } else { "," };
+            let i = format!("c{i}{}", "x".repeat(40));
+            panes.push_str(&format!(r#"{sep}"{i}":{{"id":"{i}","kind":"compose","title":"{}","payload":null}}"#, "t".repeat(200)));
+            parked.push_str(&format!(r#"{sep}"{i}""#));
+        }
+        let mut tree = String::from(r#"{"t":"leaf","tabs":["mailbox"],"active":"mailbox"}"#);
+        for i in 0..90 {
+            tree = format!(r#"{{"t":"split","dir":"row","ratio":0.5,"a":{tree},"b":{{"t":"leaf","tabs":["x{i}"],"active":"x{i}"}}}}"#);
+        }
+        let many = format!(r#"{{"v":1,"root":{tree},"panes":{{{panes}}},"parked":[{parked}],"focus":null,"zoom":null}}"#);
+        assert!(many.len() > 64 * 1024 && many.len() <= MAX_LAYOUT_BYTES, "{}", many.len());
+        s.save_layout(&many).unwrap();
+        let mut deep = String::from(r#"{"t":"leaf","tabs":["mailbox"],"active":"mailbox"}"#);
+        for i in 0..100 {
+            deep = format!(r#"{{"t":"split","dir":"row","ratio":0.5,"a":{deep},"b":{{"t":"leaf","tabs":["x{i}"],"active":"x{i}"}}}}"#);
+        }
+        assert!(s.save_layout(&format!(r#"{{"v":1,"root":{deep},"panes":{{}},"parked":[]}}"#)).is_err());
         let big = format!(r#"{{"v":1,"root":null,"panes":{{}},"parked":[],"pad":"{}"}}"#, "x".repeat(MAX_LAYOUT_BYTES));
         assert!(s.save_layout(&big).is_err());
     }

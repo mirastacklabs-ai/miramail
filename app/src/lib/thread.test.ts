@@ -124,6 +124,8 @@ test("5000 rows arrange quickly", () => {
 test("normSubject strips reply prefixes and case", () => {
   assert.equal(normSubject("Re: RE:  Fwd: Hello   World"), "hello world");
   assert.equal(normSubject(null), "");
+  for (const v of ["RE : Hello", "Re[2]: Hello", "Re(2): Hello", "AW: Hello", "AW : Hello", "SV: Hello", "Fwd: Hello", "FW: Hello", "Re (2) : Re[10]: Hello", "re:Hello"]) assert.equal(normSubject(v), "hello", v);
+  for (const v of ["Report: Q3", "Re", "Re[x]: Hello", "Resume: Hello"]) assert.equal(normSubject(v), v.toLowerCase(), v);
 });
 
 test("thread confirm shows the count, and senders + subjects only when the subjects differ", () => {

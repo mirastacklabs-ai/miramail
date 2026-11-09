@@ -2,7 +2,7 @@ import { app } from "./state.svelte";
 import { api } from "./api";
 import { forwardDraft, replyDraft, addrFull, addrLabel } from "./util";
 import { workspace, type ComposePayload } from "./workspace.svelte";
-import { defaultMode } from "./composer.svelte";
+import { composer, defaultMode } from "./composer.svelte";
 import { forwardQuoteHtml, replyQuoteHtml } from "./composetext";
 import type { MessageBody } from "./types";
 
@@ -38,9 +38,10 @@ export async function replyTo(all: boolean, forward = false) {
   const b = await bodyOf(acc);
   if (!b) return;
   if (forward) return forwardMessage("inline", b, acc);
-  const draft = replyDraft(b, all, acc);
+  await composer.ensure();
+  const draft = replyDraft(b, all, acc, composer.identities.filter((i) => i.account === acc).map((i) => i.address));
   const mode = defaultMode();
-  const extra: Partial<ComposePayload> = { kind: "reply", mode };
+  const extra: Partial<ComposePayload> = { kind: "reply", mode, ...(draft.notice ? { replyNotice: draft.notice } : {}) };
   if (mode === "rich") {
     const s = b.summary;
     const when = longDate(s.date) || "an earlier date";

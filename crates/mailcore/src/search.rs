@@ -583,22 +583,38 @@ pub struct FolderStats {
     pub newest: i64,
 }
 
-/// Lower-cased subject without leading `Re:` / `Fwd:` / `Fw:` / `Aw:` / `Sv:` prefixes.
+/// `subject` without ONE leading reply/forward marker, or None. Markers (ASCII case-insensitive): `Re`, `Fwd`, `Fw`,
+/// `Aw`, `Sv`, `Wg`, optionally followed by a counter `[2]` / `(2)`, with optional spaces before the counter and the
+/// colon (`RE :` as French Outlook writes it, `Re[2]:`, `Re(2):`).
+pub fn strip_reply_marker(subject: &str) -> Option<&str> {
+    let b = subject.as_bytes();
+    let word = ["fwd", "re", "fw", "aw", "sv", "wg"].iter().find(|w| b.len() >= w.len() && b[..w.len()].eq_ignore_ascii_case(w.as_bytes()))?;
+    let skip_ws = |mut i: usize| {
+        while i < b.len() && b[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        i
+    };
+    let mut i = skip_ws(word.len());
+    if i < b.len() && (b[i] == b'[' || b[i] == b'(') {
+        let close = if b[i] == b'[' { b']' } else { b')' };
+        let digits = b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+        if digits == 0 || b.get(i + 1 + digits) != Some(&close) {
+            return None;
+        }
+        i = skip_ws(i + digits + 2);
+    }
+    if b.get(i) != Some(&b':') {
+        return None;
+    }
+    Some(subject[i + 1..].trim_start())
+}
+
+/// Lower-cased subject without leading `Re:` / `Fwd:` / `Fw:` / `Aw:` / `Sv:` / `Wg:` markers (see [`strip_reply_marker`]).
 pub fn normalize_subject(s: &str) -> String {
     let mut t = s.trim();
-    loop {
-        let lower = t.to_ascii_lowercase();
-        let mut stripped = false;
-        for p in ["re:", "fwd:", "fw:", "aw:", "sv:", "wg:"] {
-            if lower.starts_with(p) {
-                t = t[p.len()..].trim_start();
-                stripped = true;
-                break;
-            }
-        }
-        if !stripped {
-            break;
-        }
+    while let Some(rest) = strip_reply_marker(t) {
+        t = rest;
     }
     t.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
@@ -916,6 +932,14 @@ mod tests {
         assert!(s.thread_of(ACC, "INBOX", 1, 7, &[], 10).unwrap().is_empty());
         assert!(s.thread_of(ACC, "INBOX", 2, 8, &scopes, 10).unwrap().is_empty(), "wrong UIDVALIDITY finds nothing");
         assert_eq!(normalize_subject("Re: RE: Fwd:  Hello   World"), "hello world");
+        for v in ["RE : Hello", "Re[2]: Hello", "Re(2): Hello", "AW: Hello", "AW : Hello", "SV: Hello", "Fwd: Hello", "FW: Hello", "Fwd[3] : Hello", "Re (2) : Re[10]: Hello", "WG: Hello", "re:Hello"] {
+            assert_eq!(normalize_subject(v), "hello", "{v}");
+        }
+        // Not markers: words that merely start with the letters, or a counter without digits / without a close.
+        for v in ["Report: Q3", "Reply later", "Re", "Re[x]: Hello", "Re[2: Hello", "Re(2]: Hello", "Resume: Hello", "Sverige: nyheter"] {
+            assert_eq!(normalize_subject(v), v.to_lowercase(), "{v}");
+        }
+        assert_eq!(normalize_subject("Re: ünï"), "ünï");
     }
 
     #[test]

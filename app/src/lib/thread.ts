@@ -132,7 +132,7 @@ export function earlierMembers<T extends { uid: number; folder: string; date: nu
 export function normSubject(subject: string | null | undefined): string {
   let t = (subject ?? "").trim();
   for (let i = 0; i < 8; i++) {
-    const n = t.replace(/^(re|fwd?|aw|sv|wg)\s*(\[\d+\])?\s*:\s*/i, "");
+    const n = t.replace(/^(re|fwd?|aw|sv|wg)\s*(?:\[\d+\]|\(\d+\))?\s*:\s*/i, "");
     if (n === t) break;
     t = n;
   }
