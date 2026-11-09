@@ -154,6 +154,13 @@ export const mock = {
     else if (skip && html) html = html.replace(/<img [^>]*src="https?:\/\/us1\.list-manage\.com[^"]*"[^>]*>/g, "");
     return wait({ summary: m.s, text: m.text, html, blockedRemoteCount: a.allowRemoteImages ? 0 : m.blocked, images, attachments: m.att, replyTo: [], cc: m.s.uid === 1 ? [{ name: "Charles", address: "charles@engine.example" }] : [], references: null, invite: m.s.uid === 3 && m.s.folder === "INBOX" ? mockInvite() : null });
   },
+  safety_report: (a: { uid: number }) => wait(
+    a.uid === 2
+      ? { score: 28, level: "caution", reasons: [
+          { code: "LINK_SHORTENER", severity: "low", title: "Link uses a URL shortener", detail: "A link uses the URL shortener bit.ly, which hides the real destination.", count: 1 },
+          { code: "SENDER_FIRST_TIME", severity: "low", title: "First message from this sender", detail: "No earlier mail from news@fastmail.example is stored on this Mac.", count: 1 },
+          { code: "SENDER_REPLYTO_MISMATCH", severity: "medium", title: "Replies go to a different domain", detail: "Replies would go to other.example but the message comes from fastmail.example.", count: 1 } ] }
+      : { score: 0, level: "none_found", reasons: [] }, 80),
   get_attachment: (): Promise<AttachmentData> => wait({ name: "file.txt", mime: "text/plain", dataBase64: "aGVsbG8=" }),
   async set_flag(a: { folder: string; uid: number; flag: FlagName; value: boolean }) {
     const m = msgs.find((x) => x.s.folder === a.folder && x.s.uid === a.uid); if (m) m.s.flags[a.flag] = a.value; return wait(undefined, 40);

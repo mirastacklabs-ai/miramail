@@ -749,6 +749,52 @@ impl Store {
         Ok(seq)
     }
 
+    /// Fail-closed cleanup after a folder was renamed or moved on the server: the old names lose every AI
+    /// grant. Grants are NEVER carried to the new names (that would extend the user's consent). In ONE
+    /// transaction, for `account` and each of `folders`: the `scopes` rows are set to not allowed, the scope
+    /// entries inside every conversation's stored consent are set to `allowed:false` (other consent fields are
+    /// kept untouched), the folders MIRA created in a conversation (`conv_folders`) are forgotten, and the
+    /// message references (`conv_refs`) that point into those folders are deleted. Returns how many grants
+    /// were revoked (scopes, consent entries and created-folder records), so callers can tell the user.
+    pub fn revoke_folder_grants(&mut self, account: &str, folders: &[String]) -> Result<usize> {
+        if folders.is_empty() {
+            return Ok(0);
+        }
+        let tx = self.conn.transaction()?;
+        let mut n = 0usize;
+        for f in folders {
+            n += tx.execute("UPDATE scopes SET allowed=0 WHERE account=?1 AND folder=?2 AND allowed!=0", params![account, f])?;
+            n += tx.execute("DELETE FROM conv_folders WHERE account=?1 AND folder=?2", params![account, f])?;
+            tx.execute("DELETE FROM conv_refs WHERE account=?1 AND folder=?2", params![account, f])?;
+        }
+        let rows: Vec<(i64, String)> = {
+            let mut st = tx.prepare("SELECT id, consent_json FROM conversations WHERE consent_json LIKE '%scopes%'")?;
+            let it = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            it.collect::<rusqlite::Result<_>>()?
+        };
+        for (id, json) in rows {
+            let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&json) else { continue };
+            let mut changed = false;
+            if let Some(arr) = v.get_mut("scopes").and_then(|x| x.as_array_mut()) {
+                for sc in arr.iter_mut() {
+                    let hit = sc.get("account").and_then(|x| x.as_str()) == Some(account)
+                        && sc.get("folder").and_then(|x| x.as_str()).is_some_and(|f| folders.iter().any(|g| g == f))
+                        && sc.get("allowed").and_then(|x| x.as_bool()) == Some(true);
+                    if hit {
+                        sc["allowed"] = serde_json::Value::Bool(false);
+                        changed = true;
+                        n += 1;
+                    }
+                }
+            }
+            if changed {
+                tx.execute("UPDATE conversations SET consent_json=?2 WHERE id=?1", params![id, serde_json::to_string(&v)?])?;
+            }
+        }
+        tx.commit()?;
+        Ok(n)
+    }
+
     pub fn list_scopes(&self) -> Result<Vec<(String, String, bool)>> {
         let mut st = self.conn.prepare("SELECT account, folder, allowed FROM scopes ORDER BY account, folder")?;
         let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? != 0)))?;

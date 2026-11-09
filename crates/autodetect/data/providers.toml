@@ -15,14 +15,17 @@
 #   generic             template entry used only by heuristics ({domain} placeholder)
 # tls is "implicit" (993/465) or "starttls" (143/587). Plaintext is never offered.
 
-# ---------------------------------------------------------------- Google and Microsoft (not supported yet; parked by the owner 2026-11-08)
-# Later: Gmail via app password (imap.gmail.com:993, smtp.gmail.com:465, https://myaccount.google.com/apppasswords) and OAuth for both.
+# ---------------------------------------------------------------- Google (app password) and Microsoft (not supported yet)
+# Gmail / Google Workspace: works with an app password (needs 2-step verification on the Google account).
+# No Google sign-in (OAuth) yet; planned for a later version. Microsoft needs OAuth (not supported yet).
 [[provider]]
 id = "google"
 name = "Google"
 domains = ["gmail.com", "googlemail.com"]
 mx = ["aspmx.l.google.com", "*.aspmx.l.google.com", "*.googlemail.com", "*.google.com", "smtp.google.com"]
-unsupported = true
+app_password_url = "https://myaccount.google.com/apppasswords"
+imap = [{ host = "imap.gmail.com", port = 993, tls = "implicit" }]
+smtp = [{ host = "smtp.gmail.com", port = 465, tls = "implicit" }]
 
 [[provider]]
 id = "microsoft"

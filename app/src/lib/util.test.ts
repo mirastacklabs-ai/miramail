@@ -1,7 +1,7 @@
 // @ts-nocheck -- run with: node --test src/lib/util.test.ts (Node type stripping; no extra dependencies)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { replyDraft, forwardDraft, reSubject, splitAddrs, validAddr, fmtSize, buildSrcdoc, addrLabel } from "./util.ts";
+import { linkAction, replyDraft, forwardDraft, reSubject, splitAddrs, validAddr, fmtSize, buildSrcdoc, addrLabel } from "./util.ts";
 
 const ME = "me@example.org";
 const A = (address, name = null) => ({ address, name });
@@ -152,4 +152,16 @@ test("saved identities count as me: replying to mail sent from an alias goes to 
   assert.deepEqual(replyDraft(b, false, ME).to, ["Sales@Example.org"]);
   // Reply-all from a stranger never lists my alias.
   assert.deepEqual(replyDraft(body({ to: [A(ME), A(alias)] }), true, ME, [alias]).cc, []);
+});
+
+test("linkAction: web, mail, anchor, everything else ignored", () => {
+  assert.deepEqual(linkAction("https://example.org/a?b=1#c"), { kind: "web", url: "https://example.org/a?b=1#c" });
+  assert.deepEqual(linkAction(" http://example.org "), { kind: "web", url: "http://example.org/" });
+  assert.deepEqual(linkAction("#top"), { kind: "anchor" });
+  assert.deepEqual(linkAction("mailto:a@b.co?subject=Hi%20there"), { kind: "mail", to: ["a@b.co"], subject: "Hi there" });
+  assert.deepEqual(linkAction("mailto:a@b.co,c@d.org"), { kind: "mail", to: ["a@b.co", "c@d.org"], subject: "" });
+  for (const bad of ["", null, undefined, "javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "ftp://x.org", "cid:abc", "https://", "https://user@evil.example/", "mailto:", "mailto:notanaddress", "https://exa mple.org", "not a url", "x-apple.systempreferences:"]) {
+    assert.deepEqual(linkAction(bad as string), { kind: "ignore" }, String(bad));
+  }
+  assert.equal(linkAction("https://example.org/" + "a".repeat(9000)).kind, "ignore");
 });

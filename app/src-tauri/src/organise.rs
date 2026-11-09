@@ -228,22 +228,123 @@ pub async fn folder_create(state: State<'_, AppState>, account: String, parent: 
     r
 }
 
+/// Result of a folder rename/move: the fresh folder list plus notes the UI shows (revoked AI access, a
+/// refresh that has to wait for the next sync).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderOpResult {
+    pub folders: Vec<WireFolder>,
+    pub notes: Vec<String>,
+}
+
 #[tauri::command]
-pub async fn folder_rename(state: State<'_, AppState>, account: String, folder: String, new_name: String) -> CmdResult<Vec<WireFolder>> {
-    let known = state.storage.list_folders(&account).map_err(err)?;
-    let to = foldermgmt::renamed(&known, &folder, &new_name)?;
-    let affected = folder_and_children(&known, &folder);
-    let mut conn = state.connect(&account).await?;
+pub async fn folder_rename(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    snooze: State<'_, crate::snooze::SnoozeState>,
+    ai: State<'_, crate::ai::AiState>,
+    account: String,
+    folder: String,
+    new_name: String,
+) -> CmdResult<FolderOpResult> {
+    let from = folder.clone();
+    rename_and_refresh(&app, &state, &snooze.store, &ai, &account, &from, |known| foldermgmt::renamed(known, &folder, &new_name)).await
+}
+
+/// Move `folder` (with its subfolders) under `new_parent`, or to the top level when `None`. Same IMAP RENAME,
+/// watcher handling, config persist and LIST refresh as a rename.
+#[tauri::command]
+pub async fn folder_move(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    snooze: State<'_, crate::snooze::SnoozeState>,
+    ai: State<'_, crate::ai::AiState>,
+    account: String,
+    folder: String,
+    new_parent: Option<String>,
+) -> CmdResult<FolderOpResult> {
+    let from = folder.clone();
+    rename_and_refresh(&app, &state, &snooze.store, &ai, &account, &from, |known| foldermgmt::moved(known, &folder, new_parent.as_deref())).await
+}
+
+/// Name of `old` (a folder at or below `from`) after `from` was renamed to `to`.
+pub fn remapped(old: &str, from: &str, to: &str) -> String {
+    if old == from {
+        to.to_string()
+    } else {
+        format!("{to}{}", &old[from.len()..])
+    }
+}
+
+/// The cached folder list as it will look once `from` (and everything below it) is called `to`.
+pub fn remap_folders(known: &[Folder], from: &str, to: &str) -> Vec<Folder> {
+    let affected = folder_and_children(known, from);
+    known.iter().map(|f| if affected.contains(&f.name) { Folder { name: remapped(&f.name, from, to), ..f.clone() } } else { f.clone() }).collect()
+}
+
+/// Shared by rename and move. Order: refresh LIST (so subfolders created elsewhere are included), compute the
+/// new name and the affected set, refuse while a snooze depends on one of them, RENAME, stop the old live
+/// watchers, revoke AI grants for the old names (never migrated), refresh LIST again (one retry; a failure
+/// after a successful RENAME is a note, not an error), restart live sync under the new names.
+async fn rename_and_refresh(
+    app: &AppHandle,
+    state: &AppState,
+    snooze: &crate::snooze::SnoozeStore,
+    ai: &crate::ai::AiState,
+    account: &str,
+    folder: &str,
+    name_for: impl FnOnce(&[Folder]) -> Result<String, String>,
+) -> CmdResult<FolderOpResult> {
+    let mut conn = state.connect(account).await?;
     let r = async {
-        conn.client.rename_folder(&folder, &to).await.map_err(err)?;
-        // Live watchers hold the old names: stop them (the folder and every child the server renamed with
-        // it) only now that the rename really happened; a failed rename leaves live sync untouched.
+        refresh_folders(state, account, &mut conn).await?;
+        let known = state.storage.list_folders(account).map_err(err)?;
+        let to = name_for(&known)?;
+        let affected = folder_and_children(&known, folder);
+        if let Some(used) = snooze.folder_in_use(account, &affected)? {
+            return Err(format!("Wake or forget the snoozed messages in “{used}” first."));
+        }
+        let was_live: Vec<String> = state.live_folders(account).into_iter().filter(|f| affected.contains(f)).collect();
+        conn.client.rename_folder(folder, &to).await.map_err(err)?;
+        // From here the server has the new names; nothing below may report the operation as failed.
+        let mut notes = Vec::new();
+        // Live watchers hold the old names: stop them only now that the rename really happened.
         for f in &affected {
-            state.stop_live(&account, f);
-            state.set_live_cfg(&account, f, false);
+            state.stop_live(account, f);
+            state.set_live_cfg(account, f, false);
+        }
+        // Fail closed: the old names lose every AI grant; nothing is copied to the new names.
+        match ai.revoke_folder_grants(account, &affected) {
+            Ok(0) => {}
+            Ok(_) => notes.push(format!("MIRA's access to “{folder}” was removed because the folder changed place. Allow it again in the conversation if you want.")),
+            Err(_) => notes.push("MIRA's permissions for this folder could not be updated. Check them in the conversation.".to_string()),
+        }
+        let list = match conn.client.list_folders().await {
+            Ok(l) => Some(l),
+            Err(_) => conn.client.list_folders().await.ok(),
+        };
+        let folders = match list {
+            Some(l) => {
+                state.storage.replace_folders(account, &l).map_err(err)?;
+                l.iter().map(WireFolder::from).collect()
+            }
+            None => {
+                notes.push("Renamed on the server; the folder list will update on the next sync.".to_string());
+                let local = remap_folders(&known, folder, &to);
+                let _ = state.storage.replace_folders(account, &local);
+                local.iter().map(WireFolder::from).collect()
+            }
+        };
+        // Live folders come back under their new names.
+        for old in &was_live {
+            let new = remapped(old, folder, &to);
+            if let (Ok(cfg), Ok(pw)) = (state.account(account), state.password(account)) {
+                let _ = crate::live::start_live(app, &cfg, pw, new.clone());
+                state.set_live_cfg(account, &new, true);
+            }
         }
         let _ = state.persist_config();
-        refresh_folders(&state, &account, &mut conn).await
+        Ok(FolderOpResult { folders, notes })
     }
     .await;
     conn.close().await;
@@ -573,7 +674,7 @@ fn load_headers(state: &AppState, account: &str, folder: &str, uid: u32) -> CmdR
 }
 
 /// Server names allowed to sign `Authentication-Results` for this account (same rule as auto-reply).
-fn auth_hosts(storage: &Storage, account: &str) -> Vec<String> {
+pub(crate) fn auth_hosts(storage: &Storage, account: &str) -> Vec<String> {
     let Ok(Some(cfg)) = storage.get_account(account) else { return vec![] };
     let mut v = vec![cfg.imap.host.to_ascii_lowercase()];
     if let Some((_, d)) = cfg.email.rsplit_once('@') {
@@ -1039,6 +1140,16 @@ mod tests {
         let ok = apply_empty_report(&s, ACC, "INBOX", foldermgmt::EmptyReport { total: 3, removed: vec![3, 4, 5], error: None });
         assert_eq!(ok.unwrap(), 3);
         assert!(s.uids(ACC, "INBOX").unwrap().is_empty());
+    }
+
+    #[test]
+    fn local_list_follows_a_rename_when_the_refresh_fails() {
+        let f = |n: &str| Folder { name: n.into(), delimiter: Some("/".into()), role: FolderRole::Other, selectable: true };
+        let known = vec![f("Projects"), f("Projects/Alpha"), f("ProjectsX"), f("Misc")];
+        let names: Vec<String> = remap_folders(&known, "Projects", "Misc/Projects").into_iter().map(|x| x.name).collect();
+        assert_eq!(names, vec!["Misc/Projects", "Misc/Projects/Alpha", "ProjectsX", "Misc"]);
+        assert_eq!(remapped("Projects/Alpha/Deep", "Projects", "P2"), "P2/Alpha/Deep");
+        assert_eq!(remapped("Projects", "Projects", "P2"), "P2");
     }
 
     #[test]

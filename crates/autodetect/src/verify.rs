@@ -25,9 +25,13 @@ use tokio::net::TcpStream;
 use tokio::time::{timeout, timeout_at, Instant};
 use tokio_rustls::TlsConnector;
 
-/// Total budget for the whole verification (spec: 5s). IMAP gets the first
-/// half; SMTP gets whatever remains (so a fast IMAP leaves more for SMTP).
-const VERIFY_BUDGET: Duration = Duration::from_secs(5);
+/// Total budget for the whole verification. IMAP gets the first half; SMTP gets whatever remains (so a fast IMAP
+/// leaves more for SMTP). Providers that answer quickly finish in about a second; the budget only matters for slow
+/// ones: AOL, for example, takes about 4 s to answer a rejected login on purpose, and a 5 s budget turned that
+/// rejection into "couldn't reach your mail server".
+const VERIFY_BUDGET: Duration = Duration::from_secs(30);
+/// How long to wait for the server's answer to a password attempt (providers delay these to slow down guessing).
+const AUTH_TIMEOUT: Duration = Duration::from_secs(12);
 /// Per-step cap (TCP connect, TLS handshake, each read/write). Always further
 /// bounded by the candidate's own deadline.
 const STEP_TIMEOUT: Duration = Duration::from_millis(2000);
@@ -316,7 +320,11 @@ fn io_err(e: io::Error) -> StepError {
 }
 
 pub async fn read_line(c: &mut Conn) -> Result<String, StepError> {
-    match timeout(STEP_TIMEOUT, read_line_inner(c)).await {
+    read_line_for(c, STEP_TIMEOUT).await
+}
+
+async fn read_line_for(c: &mut Conn, wait: Duration) -> Result<String, StepError> {
+    match timeout(wait, read_line_inner(c)).await {
         Ok(r) => r,
         Err(_) => Err(StepError::Unreachable("read timed out".into())),
     }
@@ -434,10 +442,36 @@ pub async fn imap_greeting(c: &mut Conn) -> Result<(), StepError> {
 
 /// Read until the tagged completion for `tag`; returns (untagged lines, status, text).
 async fn imap_finish(c: &mut Conn, tag: &str) -> Result<(Vec<String>, String, String), StepError> {
+    imap_finish_for(c, tag, STEP_TIMEOUT).await
+}
+
+/// Like `imap_finish_for` for SASL: some servers (AOL) answer bad credentials with a `+` continuation line and only
+/// send the tagged NO after the client answers it with an empty line. Waiting for the tag alone would hang until timeout.
+async fn imap_finish_sasl(c: &mut Conn, tag: &str, wait: Duration) -> Result<(Vec<String>, String, String), StepError> {
+    let mut untagged = Vec::new();
+    let prefix = format!("{tag} ");
+    let mut answered = 0;
+    for _ in 0..200 {
+        let l = read_line_for(c, wait).await?;
+        if let Some(rest) = l.strip_prefix(&prefix) {
+            let (status, text) = rest.split_once(' ').unwrap_or((rest, ""));
+            return Ok((untagged, status.to_ascii_uppercase(), clip(text)));
+        }
+        if l.starts_with('+') && answered < 2 {
+            answered += 1;
+            send(c, "").await?; // an empty line cancels the exchange; the server then reports the tagged failure
+            continue;
+        }
+        untagged.push(l);
+    }
+    Err(StepError::Unreachable("too many untagged responses".into()))
+}
+
+async fn imap_finish_for(c: &mut Conn, tag: &str, wait: Duration) -> Result<(Vec<String>, String, String), StepError> {
     let mut untagged = Vec::new();
     let prefix = format!("{tag} ");
     for _ in 0..200 {
-        let l = read_line(c).await?;
+        let l = read_line_for(c, wait).await?;
         if let Some(rest) = l.strip_prefix(&prefix) {
             let (status, text) = rest.split_once(' ').unwrap_or((rest, ""));
             return Ok((untagged, status.to_ascii_uppercase(), clip(text)));
@@ -458,7 +492,7 @@ async fn imap_attempt(c: &mut Conn, has_plain: bool, tag: &str, user: &str, pass
         send(c, &format!("{tag} AUTHENTICATE PLAIN")).await?;
         // Wait for the "+" continuation (or an immediate tagged refusal).
         loop {
-            let l = read_line(c).await?;
+            let l = read_line_for(c, AUTH_TIMEOUT).await?;
             if l.starts_with('+') {
                 break;
             }
@@ -467,14 +501,14 @@ async fn imap_attempt(c: &mut Conn, has_plain: bool, tag: &str, user: &str, pass
             }
         }
         send(c, &sasl_plain(user, password)).await?;
-        let (_, status, text) = imap_finish(c, tag).await?;
+        let (_, status, text) = imap_finish_sasl(c, tag, AUTH_TIMEOUT).await?;
         Ok(if status == "OK" { Ok(()) } else { Err(text) })
     } else {
         let quoted = quote_imap(password)
             .ok_or_else(|| StepError::Auth("password contains characters this server login cannot carry".into()))?;
         let qu = quote_imap(user).ok_or_else(|| StepError::Auth("unsupported characters in username".into()))?;
         send(c, &format!("{tag} LOGIN {qu} {quoted}")).await?;
-        let (_, status, text) = imap_finish(c, tag).await?;
+        let (_, status, text) = imap_finish_for(c, tag, AUTH_TIMEOUT).await?;
         Ok(if status == "OK" { Ok(()) } else { Err(text) })
     }
 }
@@ -521,9 +555,13 @@ fn quote_imap(s: &str) -> Option<String> {
 // ------------------------------------------------------------------------ SMTP
 
 pub async fn smtp_reply(c: &mut Conn) -> Result<(u16, Vec<String>), StepError> {
+    smtp_reply_for(c, STEP_TIMEOUT).await
+}
+
+async fn smtp_reply_for(c: &mut Conn, wait: Duration) -> Result<(u16, Vec<String>), StepError> {
     let mut lines = Vec::new();
     for _ in 0..100 {
-        let l = read_line(c).await?;
+        let l = read_line_for(c, wait).await?;
         let code: u16 = l.get(..3).and_then(|s| s.parse().ok()).ok_or_else(|| {
             StepError::Unreachable(format!("malformed SMTP reply: {}", clip(&l)))
         })?;
@@ -584,20 +622,20 @@ pub async fn smtp_auth(c: &mut Conn, caps: &[String], users: &[String], password
 async fn smtp_attempt(c: &mut Conn, plain: bool, user: &str, password: &str) -> Result<(u16, Vec<String>), StepError> {
     if plain {
         send(c, &format!("AUTH PLAIN {}", sasl_plain(user, password))).await?;
-        return smtp_reply(c).await;
+        return smtp_reply_for(c, AUTH_TIMEOUT).await;
     }
     send(c, "AUTH LOGIN").await?;
-    let (code, l) = smtp_reply(c).await?;
+    let (code, l) = smtp_reply_for(c, AUTH_TIMEOUT).await?;
     if code != 334 {
         return Ok((code, l));
     }
     send(c, &base64(user.as_bytes())).await?;
-    let (code, l) = smtp_reply(c).await?;
+    let (code, l) = smtp_reply_for(c, AUTH_TIMEOUT).await?;
     if code != 334 {
         return Ok((code, l));
     }
     send(c, &base64(password.as_bytes())).await?;
-    smtp_reply(c).await
+    smtp_reply_for(c, AUTH_TIMEOUT).await
 }
 
 async fn smtp_auth_inner(
@@ -958,6 +996,69 @@ mod tests {
             }
             server.await.unwrap();
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn slow_rejection_is_an_auth_error_not_unreachable() {
+        // AOL answers a bad login after about 4 s. The 2 s step cap used to turn that into "unreachable".
+        for caps in ["* CAPABILITY IMAP4rev1 AUTH=PLAIN\r\nc1 OK\r\n", "* CAPABILITY IMAP4rev1\r\nc1 OK\r\n"] {
+            let (mut c, mut s) = pair();
+            let plain = caps.contains("AUTH=PLAIN");
+            let server = tokio::spawn(async move {
+                read_until_crlf(&mut s).await;
+                s.write_all(caps.as_bytes()).await.unwrap();
+                read_until_crlf(&mut s).await; // a1 ...
+                if plain {
+                    s.write_all(b"+ \r\n").await.unwrap();
+                    read_until_crlf(&mut s).await;
+                }
+                tokio::time::sleep(Duration::from_millis(4200)).await;
+                s.write_all(b"a1 NO [AUTHENTICATIONFAILED] LOGIN Invalid credentials\r\n").await.unwrap();
+            });
+            let users = vec!["bob@x.org".to_string()];
+            match imap_login(&mut c, &users, "pw").await {
+                Err(StepError::Auth(m)) => assert!(m.contains("Invalid credentials"), "{m}"),
+                o => panic!("{o:?}"),
+            }
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_answer_slower_than_the_auth_cap_is_still_unreachable() {
+        let (mut c, mut s) = pair();
+        let server = tokio::spawn(async move {
+            read_until_crlf(&mut s).await;
+            s.write_all(b"* CAPABILITY IMAP4rev1\r\nc1 OK\r\n").await.unwrap();
+            read_until_crlf(&mut s).await;
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        });
+        let users = vec!["bob@x.org".to_string()];
+        assert!(matches!(imap_login(&mut c, &users, "pw").await, Err(StepError::Unreachable(_))));
+        server.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn aol_style_error_challenge_after_plain_is_an_auth_error() {
+        // AOL: AUTHENTICATE PLAIN -> "+", credentials -> "+" again (after a delay), then the tagged NO only after an empty line.
+        let (mut c, mut s) = pair();
+        let server = tokio::spawn(async move {
+            read_until_crlf(&mut s).await;
+            s.write_all(b"* CAPABILITY IMAP4rev1 AUTH=PLAIN\r\nc1 OK\r\n").await.unwrap();
+            read_until_crlf(&mut s).await; // a1 AUTHENTICATE PLAIN
+            s.write_all(b"+\r\n").await.unwrap();
+            read_until_crlf(&mut s).await; // credentials
+            tokio::time::sleep(Duration::from_millis(4200)).await;
+            s.write_all(b"+\r\n").await.unwrap();
+            read_until_crlf(&mut s).await; // the empty line
+            s.write_all(b"a1 NO [AUTHENTICATIONFAILED] LOGIN Invalid credentials\r\n").await.unwrap();
+        });
+        let users = vec!["bob@x.org".to_string()];
+        match imap_login(&mut c, &users, "pw").await {
+            Err(StepError::Auth(m)) => assert!(m.contains("Invalid credentials"), "{m}"),
+            o => panic!("{o:?}"),
+        }
+        server.await.unwrap();
     }
 
     #[tokio::test]

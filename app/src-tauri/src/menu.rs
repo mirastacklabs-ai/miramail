@@ -10,7 +10,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// Actions the frontend understands. Anything else coming from a menu is ignored.
 pub const FRONTEND_ACTIONS: &[&str] = &[
-    "preferences", "about", "new-message", "check-mail", "view-mail", "view-calendar", "toggle-ai", "cycle-theme", "shortcuts",
+    "preferences", "about", "new-message", "check-mail", "view-mail", "view-calendar", "toggle-view", "toggle-ai", "cycle-theme", "shortcuts",
     "go-inbox", "go-drafts", "go-sent", "go-archive", "go-trash", "go-junk", "reply", "reply-all", "forward", "archive", "trash",
     "mark-read", "mark-unread", "toggle-flag",
 ];
@@ -50,6 +50,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let view = SubmenuBuilder::new(app, "View")
         .item(&item(app, "view-mail", "Mail", Some("CmdOrCtrl+1"))?)
         .item(&item(app, "view-calendar", "Calendar", Some("CmdOrCtrl+2"))?)
+        .item(&item(app, "toggle-view", "Switch Between Tabs and Tiles", None)?)
         .separator()
         .item(&item(app, "toggle-ai", "Show or Hide MIRA", Some("CmdOrCtrl+J"))?)
         .item(&item(app, "cycle-theme", "Switch Theme", None)?)

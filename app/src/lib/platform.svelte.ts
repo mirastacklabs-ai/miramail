@@ -39,6 +39,7 @@ class Platform {
       // Tabs layout: Cmd+1 / Cmd+2 are the first / second tab (the keydown handler leaves these two to the menu so it never fires twice).
       case "view-mail": if (workspace.tabsOn) { if (!workspace.keyBlock?.()) { workspace.jumpTab(1); workspace.tabFocus(); } } else app.view = "mail"; break;
       case "view-calendar": if (workspace.tabsOn) { if (!workspace.keyBlock?.()) { workspace.jumpTab(2); workspace.tabFocus(); } } else app.view = "calendar"; break;
+      case "toggle-view": workspace.toggleView(); break;
       case "toggle-ai": workspace.toggleAi(); break;
       case "cycle-theme": app.cycleTheme(); break;
       case "reply": void replyTo(false); break;

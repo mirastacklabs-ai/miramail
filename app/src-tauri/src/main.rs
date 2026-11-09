@@ -22,6 +22,7 @@ mod localorg;
 mod mbox_export;
 mod snooze;
 mod organise;
+mod safety_cmds;
 mod outbox;
 mod panes;
 mod state;
@@ -38,6 +39,7 @@ mod plat_prefs;
 mod tray;
 mod widget;
 mod native;
+mod linknav;
 mod winstate;
 
 use mailcore::{KeychainSecretStore, SecretStore, Storage};
@@ -47,6 +49,7 @@ use tauri::Manager;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(linknav::plugin())
         .on_window_event(winstate::on_window_event)
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
@@ -124,6 +127,11 @@ fn main() {
             app.manage(plat);
             app.manage(badge::BadgeState::default());
             app.manage(mailto::Pending::default());
+            // The main window is built here, not from tauri.conf.json (`"create": false`), so it can get the same new-window /
+            // download hardening as the others (see linknav::harden). All state is managed by now, so the first IPC call
+            // from the page finds it; everything below that looks up "main" runs after this.
+            let main_cfg = app.config().app.windows.first().ok_or("no main window in tauri.conf.json")?.clone();
+            linknav::harden(tauri::WebviewWindowBuilder::from_config(app.handle(), &main_cfg)?, app.handle(), &main_cfg.label).build()?;
             menu::install(app)?;
             winstate::restore_main(app.handle());
             widget::sync(app.handle());
@@ -159,6 +167,7 @@ fn main() {
             commands::load_older,
             commands::get_message,
             commands::get_attachment,
+            safety_cmds::safety_report,
             commands::set_flag,
             commands::move_message,
             commands::move_message_to,
@@ -173,6 +182,7 @@ fn main() {
             organise::search_server,
             organise::folder_create,
             organise::folder_rename,
+            organise::folder_move,
             organise::folder_message_count,
             organise::folder_delete,
             organise::folder_subscribe,

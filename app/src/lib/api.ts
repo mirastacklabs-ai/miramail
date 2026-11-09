@@ -6,6 +6,7 @@ import type {
   LoadOlderResult, MessageSummary, ComposerData, Signature, SigDefaults, Identity, AddrSuggestion, NewMailEvent, Outgoing, StatusEvent, SyncReport, SyncSettings, SyncedEvent, LiveEvent, LiveStatus, DraftRec,
   OutboxItem, OutboxRestored, OutboxChanged, MirrorStatus,
 } from "./types";
+import type { SafetyReport } from "./safety";
 import { mock } from "./mock";
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -36,6 +37,8 @@ export const api = {
   loadOlder: (account: string, folder: string, count?: number) => call<LoadOlderResult>("load_older", { account, folder, count }),
   getMessage: (account: string, folder: string, uid: number, allowRemoteImages: boolean, skipTrackers = true, markSeen = true) =>
     call<MessageBody>("get_message", { account, folder, uid, allowRemoteImages, skipTrackers, markSeen }),
+  /** Local, read-only warning-sign check for a cached message (no network). */
+  safetyReport: (account: string, folder: string, uid: number) => call<SafetyReport>("safety_report", { account, folder, uid }),
   getAttachment: (account: string, folder: string, uid: number, id: string, uidvalidity?: number) =>
     call<AttachmentData>("get_attachment", { account, folder, uid, id, uidvalidity }),
   setFlag: (account: string, folder: string, uid: number, flag: FlagName, value: boolean) =>
@@ -181,6 +184,12 @@ export async function onClosePane(cb: () => void): Promise<() => void> {
 export async function onWsEvent(name: "ws://detach-pane" | "ws://attach-pane" | "pane://close-request" | "pane://flush" | "pane://detached" | "pane://closed" | "pane://attach", cb: (payload: unknown) => void): Promise<() => void> {
   if (!isTauri) return () => {};
   return listenSelf<unknown>(name, cb);
+}
+
+/** A link click in a message frame, cancelled by the backend's navigation hook (linknav.rs) and forwarded to this window only. Payload: the URL. */
+export async function onMailLink(cb: (url: string) => void): Promise<() => void> {
+  if (!isTauri) return () => {};
+  return listenSelf<string>("mail://link", cb);
 }
 
 export async function openExternal(url: string): Promise<void> {

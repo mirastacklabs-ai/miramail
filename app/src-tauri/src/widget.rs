@@ -68,7 +68,7 @@ fn open(app: &AppHandle) {
     }
     let saved = app.state::<PlatformState>().get().widget_geo;
     let g = saved.and_then(|g| winstate::clamp_visible(g, &winstate::screens(app))).unwrap_or_else(|| default_geo(app));
-    let built = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("widget.html".into()))
+    let b = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("widget.html".into()))
         .title("MiraMail")
         .inner_size(g.w, g.h)
         .position(g.x, g.y)
@@ -82,8 +82,8 @@ fn open(app: &AppHandle) {
         .skip_taskbar(true)
         .visible_on_all_workspaces(true)
         .accept_first_mouse(true)
-        .focused(false)
-        .build();
+        .focused(false);
+    let built = crate::linknav::harden(b, app, LABEL).build();
     if let Ok(w) = built {
         desktop_behaviour(&w);
     }

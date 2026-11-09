@@ -26,7 +26,12 @@ export const orgMock = {
   },
   search_server: () => wait({ found: 0, searched: 1, skipped: 0, notes: ["Mock: no server."] }, 400),
   async folder_create(a: { parent: string | null; name: string }) { extra.push({ name: a.parent ? `${a.parent}/${a.name}` : a.name, role: "other", selectable: true, delimiter: "/" }); return wait(await allFolders(), 200); },
-  async folder_rename(a: { folder: string; newName: string }) { extra = extra.map((f) => (f.name === a.folder ? { ...f, name: a.newName } : f)); return wait(await allFolders(), 200); },
+  async folder_rename(a: { folder: string; newName: string }) { extra = extra.map((f) => (f.name === a.folder ? { ...f, name: a.newName } : f)); return wait({ folders: await allFolders(), notes: [] }, 200); },
+  async folder_move(a: { folder: string; newParent: string | null }) {
+    const leaf = a.folder.split("/").pop()!, to = a.newParent ? `${a.newParent}/${leaf}` : leaf;
+    extra = extra.map((f) => (f.name === a.folder ? { ...f, name: to } : f.name.startsWith(a.folder + "/") ? { ...f, name: to + f.name.slice(a.folder.length) } : f));
+    return wait({ folders: await allFolders(), notes: [] }, 200);
+  },
   folder_message_count: (a: { folder: string }) => mock.list_messages({ folder: a.folder, limit: 10000, offset: 0 }).then((r: unknown[]) => r.length),
   async folder_delete(a: { folder: string }) { extra = extra.filter((f) => f.name !== a.folder); return wait(await allFolders(), 200); },
   async folder_subscribe(a: { folder: string; subscribed: boolean }) { if (a.subscribed) subs.add(a.folder); else subs.delete(a.folder); return wait(undefined, 100); },

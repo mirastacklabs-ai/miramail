@@ -29,3 +29,5 @@ rpassword = "7"
 
 [dev-dependencies]
 toml = { version = "0.8", default-features = false, features = ["display"] }
+# Paused clock for the slow-server tests (test builds only; adds nothing to the app).
+tokio = { version = "1", default-features = false, features = ["test-util"] }

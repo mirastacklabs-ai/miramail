@@ -189,8 +189,12 @@ mod tests {
         assert_eq!(db.by_mx(&["in1-smtp.messagingengine.com"]).unwrap().id, "fastmail");
         assert_eq!(db.by_mx(&["aspmx.l.google.com"]).unwrap().id, "google");
         assert_eq!(db.by_mx(&["x.mail.protection.outlook.com"]).unwrap().id, "microsoft");
-        // Google and Microsoft are parked (unsupported) for 1.0.
-        assert!(db.by_domain("gmail.com").unwrap().unsupported);
+        // Gmail works with an app password; Microsoft is still blocked (OAuth only).
+        let g = db.by_domain("gmail.com").unwrap();
+        assert!(!g.unsupported);
+        assert!(g.app_password_url.as_deref().unwrap().starts_with("https://myaccount.google.com/"));
+        let (i, s) = g.candidates(Source::Bundled, "gmail.com", true);
+        assert_eq!((i[0].host.as_str(), s[0].host.as_str()), ("imap.gmail.com", "smtp.gmail.com"));
         assert!(db.by_domain("outlook.com").unwrap().unsupported);
         assert_eq!(db.by_mx(&["mailserver.purelymail.com"]).unwrap().id, "purelymail");
         assert!(db.by_mx(&["mail.example.org"]).is_none());

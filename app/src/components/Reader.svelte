@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { api, openExternal } from "../lib/api";
+  import { api } from "../lib/api";
+  import { openLink } from "../lib/links";
   import { app } from "../lib/state.svelte";
   import { forwardMessage, replyTo } from "../lib/compose";
   import { prefs } from "../lib/prefs.svelte";
   import { bodyBaseCss } from "../lib/prefs-model";
-  import { addrFull, addrLabel, buildSrcdoc, extractLinks, fmtSize, fullDate } from "../lib/util";
+  import { addrFull, addrLabel, buildSrcdoc, extractLinks, fmtSize, fullDate, linkAction } from "../lib/util";
   import type { Attachment } from "../lib/types";
   import { bannerText, imageStatus, plural, sizeLabel, summarize, warningFor } from "../lib/trackers";
   import InviteCard from "./InviteCard.svelte";
@@ -15,6 +16,7 @@
   import Attachments from "./Attachments.svelte";
   import PrintSheet from "./PrintSheet.svelte";
   import ThreadStrip from "./ThreadStrip.svelte";
+  import SafetyBanner from "./SafetyBanner.svelte";
 
   const b = $derived(app.body);
   const sel = $derived(app.selected);
@@ -32,9 +34,27 @@
   const flagged = $derived(sel?.flags.flagged ?? false);
 
   /**
+   * WebKit never runs event listeners whose target document is in a frame that may not run scripts (proven in a
+   * WKWebView harness, even for listeners added by the parent), so clicks cannot be caught here. Instead web / mail
+   * links get target=_blank; with `allow-popups` a click becomes a new-window navigation that the backend hook
+   * (linknav.rs) cancels and forwards as "mail://link" (handled once per window in main.ts). "#anchor" links keep
+   * navigating inside the frame; anything else loses its href so it does nothing.
+   */
+  function markLinks(d: Document) {
+    for (const a of Array.from(d.querySelectorAll("a[href], area[href]"))) {
+      const kind = linkAction(a.getAttribute("href")).kind;
+      if (kind === "web" || kind === "mail") { a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener noreferrer"); }
+      else {
+        a.removeAttribute("target"); // an anchor must never become a new-window action (about:srcdoc#x is allowed by the hook)
+        if (kind === "ignore") a.removeAttribute("href");
+      }
+    }
+  }
+
+  /**
    * Size the message frame to its content so the READER pane is the only scroller (a nested scroller inside the
    * frame stopped answering two-finger scrolling after the pane was resized). `allow-same-origin` lets us read the
-   * document height; scripts stay off twice over (no `allow-scripts`, and the srcdoc CSP is `default-src 'none'`).
+   * document height; `allow-popups` only lets link clicks reach the backend navigation hook (never popups: it cancels them). Scripts stay off twice over (no `allow-scripts`, and the srcdoc CSP is `default-src 'none'`).
    */
   function fit(node: HTMLIFrameElement) {
     let ro: ResizeObserver | undefined;
@@ -49,20 +69,20 @@
       const d = node.contentDocument;
       if (!d?.documentElement) return;
       measure();
+      markLinks(d);
       ro = new ResizeObserver(measure);
       ro.observe(d.documentElement);
       if (d.body) ro.observe(d.body);
       ro.observe(node);
     };
     node.addEventListener("load", onload);
-    return { destroy() { node.removeEventListener("load", onload); ro?.disconnect(); } };
+    // WebKit can finish loading a srcdoc frame before this action runs, so "load" never reaches us: attach now too (and once more next frame).
+    const ready = () => { const d = node.contentDocument; if (d?.readyState === "complete" && d.body?.firstChild) onload(); };
+    ready();
+    const raf = requestAnimationFrame(ready);
+    return { destroy() { cancelAnimationFrame(raf); node.removeEventListener("load", onload); ro?.disconnect(); } };
   }
 
-  async function openLink(url: string) {
-    const ok = await app.ask({ title: "Open link?", body: "This will open the address below in your default browser.", detail: url, ok: "Open" });
-    if (!ok) return;
-    try { await openExternal(url); } catch (e) { app.fail(e); }
-  }
   async function download(a: Attachment) {
     if (!app.account || !b) return;
     try {
@@ -141,6 +161,8 @@
 
       {#if b.invite}<InviteCard invite={b.invite} uid={b.summary.uid} folder={b.summary.folder} />{/if}
 
+      <SafetyBanner />
+
       {#if showPrivacy}
         <div class="privacy" aria-live="polite">
           {#if warning && !app.imagesAllowed}
@@ -202,7 +224,7 @@
 
       {#if showHtml}
         <!-- Keyed on the content: swapping `srcdoc` on a live frame sometimes left the OLD document showing (images never appeared after "Show images"); a fresh frame per content cannot. -->
-        <div class="card">{#key srcdoc}<iframe title="Message content" sandbox="allow-same-origin" use:fit {srcdoc}></iframe>{/key}</div>
+        <div class="card">{#key srcdoc}<iframe title="Message content" sandbox="allow-same-origin allow-popups" use:fit {srcdoc}></iframe>{/key}</div>
       {:else}
         <pre class="plain selectable">{b.text ?? "(This message has no readable text.)"}</pre>
       {/if}

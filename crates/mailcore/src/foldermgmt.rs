@@ -1,4 +1,4 @@
-//! Folder management: create / rename / delete / subscribe / empty, plus the pure guards around them.
+//! Folder management: create / rename / move / delete / subscribe / empty, plus the pure guards around them.
 //!
 //! Safety properties:
 //! * special folders (INBOX and every folder with a role) can be neither renamed nor deleted;
@@ -39,9 +39,19 @@ pub fn has_children(folders: &[Folder], f: &Folder) -> bool {
     folders.iter().any(|o| o.name.starts_with(&prefix))
 }
 
+/// A new or renamed leaf must not read as a special folder (Sent, Drafts, Trash, Junk/Spam, Archive, Inbox):
+/// the app and the server would then treat the folder as that role.
+fn reject_role_name(leaf: &str) -> std::result::Result<(), String> {
+    if crate::imap::classify_folder(leaf, None, &[]) != FolderRole::Other {
+        return Err(format!("“{leaf}” is a name reserved for a special folder. Choose another name."));
+    }
+    Ok(())
+}
+
 /// Full name of a new folder named `leaf` under `parent` (a folder name, or `None` for the top level).
 pub fn child_name(folders: &[Folder], parent: Option<&str>, leaf: &str) -> std::result::Result<String, String> {
     let leaf = validate_new_folder_name(leaf)?;
+    reject_role_name(&leaf)?;
     let name = match parent {
         None => leaf,
         Some(p) => {
@@ -62,6 +72,7 @@ pub fn renamed(folders: &[Folder], old: &str, new_leaf: &str) -> std::result::Re
         return Err("This is a special folder and can't be renamed.".into());
     }
     let leaf = validate_new_folder_name(new_leaf)?;
+    reject_role_name(&leaf)?;
     let d = delim_of(f);
     let name = match old.rsplit_once(d.as_str()) {
         Some((parent, _)) => format!("{parent}{d}{leaf}"),
@@ -72,6 +83,57 @@ pub fn renamed(folders: &[Folder], old: &str, new_leaf: &str) -> std::result::Re
     }
     if folders.iter().any(|x| x.name.eq_ignore_ascii_case(&name)) {
         return Err("A folder with that name already exists.".into());
+    }
+    Ok(name)
+}
+
+/// Personal-namespace prefix of servers that keep every folder under INBOX (e.g. Dovecot `INBOX.` / Courier):
+/// `Some("INBOX.")` when INBOX has a delimiter and every other folder starts with `INBOX<delim>`. On those
+/// servers a "top level" folder has to carry the prefix or the server refuses the name.
+pub fn personal_prefix(folders: &[Folder]) -> Option<String> {
+    let inbox = folders.iter().find(|f| f.name.eq_ignore_ascii_case("INBOX"))?;
+    let d = inbox.delimiter.clone().filter(|d| !d.is_empty())?;
+    let prefix = format!("{}{}", inbox.name, d);
+    let others: Vec<_> = folders.iter().filter(|f| !f.name.eq_ignore_ascii_case("INBOX")).collect();
+    (!others.is_empty() && others.iter().all(|f| f.name.starts_with(&prefix))).then_some(prefix)
+}
+
+/// New full name when moving `folder` (with its subfolders) under `new_parent` (`None` = top level of the
+/// personal namespace). Keeps the leaf name and uses the delimiter of the destination.
+pub fn moved(folders: &[Folder], folder: &str, new_parent: Option<&str>) -> std::result::Result<String, String> {
+    let f = find(folders, folder).ok_or("That folder no longer exists.")?;
+    if is_protected(f) {
+        return Err("This is a special folder and can't be moved.".into());
+    }
+    let d = f.delimiter.clone().filter(|d| !d.is_empty()).ok_or("This server does not support folder hierarchy, so folders can't be moved.")?;
+    let leaf = folder.rsplit_once(d.as_str()).map_or(folder, |(_, l)| l);
+    let sub = format!("{folder}{d}");
+    if folders.iter().any(|o| o.name.starts_with(&sub) && is_protected(o)) {
+        return Err("This folder contains a special folder and can't be moved.".into());
+    }
+    let name = match new_parent {
+        Some(p) => {
+            let pf = find(folders, p).ok_or("The destination folder no longer exists.")?;
+            if p == folder || p.starts_with(&sub) {
+                return Err("A folder can't be moved into itself or one of its subfolders.".into());
+            }
+            let pd = pf.delimiter.clone().filter(|d| !d.is_empty()).ok_or("The destination does not support subfolders.")?;
+            format!("{p}{pd}{leaf}")
+        }
+        None => match personal_prefix(folders) {
+            Some(prefix) => format!("{prefix}{leaf}"),
+            None => leaf.to_string(),
+        },
+    };
+    if name == folder {
+        return Err("The folder is already there.".into());
+    }
+    // The destination delimiter decides what counts as "below the new name". The folder itself and its own
+    // subfolders are about to move, so they never collide (a case-only change is a legal move).
+    let pd = new_parent.and_then(|p| find(folders, p)).map_or_else(|| d.clone(), delim_of);
+    let sub_new = format!("{name}{pd}").to_lowercase();
+    if folders.iter().filter(|x| x.name != folder && !x.name.starts_with(&sub)).any(|x| x.name.eq_ignore_ascii_case(&name) || x.name.to_lowercase().starts_with(&sub_new)) {
+        return Err("A folder with that name already exists at the destination.".into());
     }
     Ok(name)
 }
@@ -232,6 +294,77 @@ mod tests {
         let dotted = vec![f("INBOX", FolderRole::Inbox, "."), f("INBOX.Work", FolderRole::Other, ".")];
         assert_eq!(renamed(&dotted, "INBOX.Work", "Jobs").unwrap(), "INBOX.Jobs");
         assert_eq!(child_name(&dotted, Some("INBOX"), "New").unwrap(), "INBOX.New");
+    }
+
+    #[test]
+    fn role_names_are_rejected_for_new_and_renamed_leaves() {
+        let t = tree();
+        for n in ["Sent", "sent items", "Drafts", "TRASH", "Junk", "Spam", "Archive", "Archives", "Bin", "All Mail"] {
+            assert!(child_name(&t, None, n).unwrap_err().contains("special folder"), "create {n}");
+            assert!(child_name(&t, Some("Projects"), n).is_err(), "create child {n}");
+            assert!(renamed(&t, "Misc", n).is_err(), "rename {n}");
+        }
+        assert!(child_name(&t, None, "Archive2").is_ok());
+        assert!(renamed(&t, "Misc", "Sentinel").is_ok());
+    }
+
+    #[test]
+    fn case_only_move_and_destination_delimiter() {
+        // A folder never collides with itself: moving "a/Misc" under "A" keeps its name but changes the parent.
+        let t = vec![f("INBOX", FolderRole::Inbox, "/"), f("a", FolderRole::Other, "/"), f("A", FolderRole::Other, "/"), f("a/Misc", FolderRole::Other, "/")];
+        assert_eq!(moved(&t, "a/Misc", Some("A")).unwrap(), "A/Misc");
+        // sub-prefix check uses the destination delimiter: "B.X.y" sits below the new name "B.X".
+        let m = vec![f("INBOX", FolderRole::Inbox, "."), f("B", FolderRole::Other, "."), f("B.X.y", FolderRole::Other, "."), f("X", FolderRole::Other, ".")];
+        assert!(moved(&m, "X", Some("B")).unwrap_err().contains("exists"));
+    }
+
+    #[test]
+    fn move_names_and_refusals() {
+        let mut t = tree();
+        t.push(f("Projects/Alpha/Deep", FolderRole::Other, "/"));
+        assert_eq!(moved(&t, "Misc", Some("Projects")).unwrap(), "Projects/Misc");
+        assert_eq!(moved(&t, "Projects/Alpha", None).unwrap(), "Alpha");
+        assert_eq!(moved(&t, "Projects/Alpha", Some("Misc")).unwrap(), "Misc/Alpha");
+        assert_eq!(moved(&t, "Projects/Alpha/Deep", Some("Misc")).unwrap(), "Misc/Deep");
+        assert!(moved(&t, "Misc", Some("Misc")).is_err(), "into itself");
+        assert!(moved(&t, "Projects", Some("Projects/Alpha")).is_err(), "into child");
+        assert!(moved(&t, "Projects", Some("Projects/Alpha/Deep")).is_err(), "into grandchild");
+        assert!(moved(&t, "Misc", None).unwrap_err().contains("already"), "top level no-op");
+        assert!(moved(&t, "Projects/Alpha", Some("Projects")).unwrap_err().contains("already"), "same parent");
+        assert!(moved(&t, "INBOX", Some("Misc")).is_err());
+        assert!(moved(&t, "Trash", Some("Misc")).is_err());
+        assert!(moved(&t, "Nope", Some("Misc")).is_err());
+        assert!(moved(&t, "Misc", Some("Nope")).is_err());
+        let mut sib = tree();
+        sib.push(f("Projects2", FolderRole::Other, "/"));
+        assert_eq!(moved(&sib, "Projects2", Some("Projects")).unwrap(), "Projects/Projects2", "sibling with a shared prefix is not a descendant");
+        assert_eq!(moved(&sib, "Projects", Some("Projects2")).unwrap(), "Projects2/Projects");
+        let mut c = tree();
+        c.push(f("Misc/Alpha", FolderRole::Other, "/"));
+        assert!(moved(&c, "Projects/Alpha", Some("Misc")).unwrap_err().contains("exists"));
+        c.push(f("alpha", FolderRole::Other, "/"));
+        assert!(moved(&c, "Projects/Alpha", None).unwrap_err().contains("exists"), "case-insensitive");
+        let mut r = tree();
+        r.push(f("Misc/Sent", FolderRole::Sent, "/"));
+        assert!(moved(&r, "Misc", Some("Projects")).is_err(), "holds a special folder");
+        let nd = vec![f("INBOX", FolderRole::Inbox, "/"), Folder { name: "A".into(), delimiter: None, role: FolderRole::Other, selectable: true }, f("B", FolderRole::Other, "/")];
+        assert!(moved(&nd, "A", Some("B")).unwrap_err().contains("hierarchy"));
+    }
+
+    #[test]
+    fn move_respects_inbox_prefix_namespace_and_delimiter() {
+        let d = vec![
+            f("INBOX", FolderRole::Inbox, "."),
+            f("INBOX.Sent", FolderRole::Sent, "."),
+            f("INBOX.Work", FolderRole::Other, "."),
+            f("INBOX.Work.Q1", FolderRole::Other, "."),
+            f("INBOX.Misc", FolderRole::Other, "."),
+        ];
+        assert_eq!(personal_prefix(&d).as_deref(), Some("INBOX."));
+        assert_eq!(moved(&d, "INBOX.Work.Q1", None).unwrap(), "INBOX.Q1", "top level keeps the prefix");
+        assert_eq!(moved(&d, "INBOX.Misc", Some("INBOX.Work")).unwrap(), "INBOX.Work.Misc");
+        assert!(moved(&d, "INBOX.Misc", None).is_err(), "already top level");
+        assert!(personal_prefix(&tree()).is_none());
     }
 
     #[test]

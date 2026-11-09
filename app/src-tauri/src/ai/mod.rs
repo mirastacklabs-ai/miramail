@@ -153,6 +153,13 @@ impl AiState {
         f(&mut g).map_err(|_| DB_ERR.to_string())
     }
 
+    /// A folder was renamed/moved on the server: the old names lose every grant (consent, saved scopes,
+    /// MIRA-created-folder records, message refs). Never migrated to the new names. Returns how many grants
+    /// were revoked.
+    pub fn revoke_folder_grants(&self, account: &str, folders: &[String]) -> R<usize> {
+        self.db(|s| s.revoke_folder_grants(account, folders))
+    }
+
     async fn secret_get(&self, account: String) -> R<Option<String>> {
         let s = self.secrets.clone();
         tauri::async_runtime::spawn_blocking(move || s.get(&account))

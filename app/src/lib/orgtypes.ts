@@ -2,6 +2,8 @@
 import type { Folder, FolderRole, MessageSummary } from "./types";
 
 export type SearchScope = "folder" | "account" | "all";
+/** Result of a folder rename/move: the fresh list plus notes to show (revoked AI access, delayed list refresh). */
+export interface FolderOp { folders: import("./types").Folder[]; notes: string[] }
 export interface SearchResult { hits: MessageSummary[]; total: number; hints: string[] }
 export interface ServerSearchResult { found: number; searched: number; skipped: number; notes: string[] }
 export interface MoveItem { uid?: number | null; messageId?: string | null }

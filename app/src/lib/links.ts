@@ -1,0 +1,28 @@
+import { openExternal } from "./api";
+import { app } from "./state.svelte";
+import { workspace } from "./workspace.svelte";
+import { linkAction } from "./util";
+
+let asking = false;
+
+/** "Open link?" confirm showing the real address, then the system browser. A second request while the dialog is open is ignored (no stacking). */
+export async function openLink(url: string): Promise<void> {
+  if (asking || app.confirmReq) return; // never replace a dialog that is already showing
+  asking = true;
+  try {
+    const ok = await app.ask({ title: "Open link?", body: "This will open the address below in your default browser.", detail: url, ok: "Open" });
+    if (!ok) return;
+    await openExternal(url);
+  } catch (e) {
+    app.fail(e);
+  } finally {
+    asking = false;
+  }
+}
+
+/** A link the backend cancelled in the message frame (see linknav.rs): re-validate, then confirm / compose. */
+export function handleMailLink(url: string): void {
+  const act = linkAction(url);
+  if (act.kind === "web") void openLink(act.url);
+  else if (act.kind === "mail") workspace.openCompose({ to: act.to, cc: [], bcc: [], subject: act.subject, text: "", inReplyTo: null });
+}

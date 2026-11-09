@@ -266,6 +266,23 @@ export function tabGroups(ws: Ws): TabGroup[] {
   }
   return out;
 }
+/** Re-order the non-Mail tabs to `keys` (tab keys = pane ids; unknown / missing ids are ignored, missing ones keep their relative order at the end).
+ *  Tab order is layout order, so the non-Mail panes are re-seated into the same tree slots in the new order: the tree shape and
+ *  Mail panes stay put, only which pane sits in which slot changes (visible in Tiles too). */
+export function reorderTabs(ws: Ws, keys: string[]): Ws {
+  const cur = tabGroups(ws).filter((g) => g.key !== MAIL_KEY).map((g) => g.key);
+  const want = keys.filter((k, i) => cur.includes(k) && keys.indexOf(k) === i);
+  const order = [...want, ...cur.filter((k) => !want.includes(k))];
+  if (order.every((k, i) => k === cur[i])) return ws;
+  const seat = new Map<string, string>(); // old id -> id now in its slot
+  cur.forEach((old, j) => seat.set(old, order[j]));
+  const walk = (n: Node): Node => {
+    if (n.t === "split") return { ...n, a: walk(n.a), b: walk(n.b) };
+    const tabs = n.tabs.map((id) => seat.get(id) ?? id);
+    return { t: "leaf", tabs, active: seat.get(n.active) ?? n.active };
+  };
+  return ws.root ? { ...ws, root: walk(ws.root) } : ws;
+}
 /** Key of the group the focus is in; falls back to the first group; null when there are no tabs. */
 export function activeGroupKey(ws: Ws): string | null {
   const groups = tabGroups(ws);

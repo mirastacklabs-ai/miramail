@@ -18,7 +18,7 @@ function walk(dir, out = []) {
 const root = new URL("..", import.meta.url).pathname;
 const files = walk(root).map((f) => [f.slice(root.length), readFileSync(f, "utf8")]);
 
-test("every iframe is sandboxed and never gets scripts, forms, popups or top navigation", () => {
+test("every iframe is sandboxed and never gets scripts, forms, top navigation (popups only in the Reader frame)", () => {
   let n = 0;
   for (const [f, src] of files) {
     for (const m of src.matchAll(/<iframe\b[^>]*>/gi)) {
@@ -26,7 +26,11 @@ test("every iframe is sandboxed and never gets scripts, forms, popups or top nav
       const tag = m[0];
       const sb = /\bsandbox\s*=\s*"([^"]*)"/i.exec(tag);
       assert.ok(sb, `${f}: iframe without a sandbox attribute: ${tag}`);
-      for (const bad of ["allow-scripts", "allow-forms", "allow-popups", "allow-top-navigation", "allow-modals", "allow-downloads"]) {
+      // The Reader frame alone needs allow-popups: link clicks become new-window navigations that linknav.rs cancels (never an escaping popup).
+      const readerFrame = f.endsWith("components/Reader.svelte");
+      if (!readerFrame) assert.ok(!sb[1].includes("allow-popups"), `${f}: iframe sandbox grants allow-popups`);
+      assert.ok(!sb[1].includes("allow-popups-to-escape-sandbox"), `${f}: iframe sandbox grants allow-popups-to-escape-sandbox`);
+      for (const bad of ["allow-scripts", "allow-forms", "allow-top-navigation", "allow-modals", "allow-downloads"]) {
         assert.ok(!sb[1].includes(bad), `${f}: iframe sandbox grants ${bad}`);
       }
     }

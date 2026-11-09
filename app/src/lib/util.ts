@@ -116,3 +116,23 @@ export function splitAddrs(v: string): string[] {
   return out.map((x) => x.trim()).filter(Boolean);
 }
 export const validAddr = (v: string) => /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(v.replace(/^.*<(.+)>$/, "$1"));
+
+/** What a click on a link inside a message should do. Only web and mailto links ever leave the sandboxed frame; "#anchor" stays in the message; everything else is ignored. */
+export type LinkAction = { kind: "web"; url: string } | { kind: "mail"; to: string[]; subject: string } | { kind: "anchor" } | { kind: "ignore" };
+export function linkAction(href: string | null | undefined): LinkAction {
+  const h = (href ?? "").trim();
+  if (!h) return { kind: "ignore" };
+  if (h.startsWith("#")) return { kind: "anchor" };
+  if (h.length > 8192 || /[\u0000-\u001f\u007f\s]/.test(h)) return { kind: "ignore" };
+  let u: URL;
+  try { u = new URL(h); } catch { return { kind: "ignore" }; }
+  if (u.protocol === "http:" || u.protocol === "https:") return u.hostname && !u.username ? { kind: "web", url: u.href } : { kind: "ignore" };
+  if (u.protocol === "mailto:") {
+    let to: string[] = [];
+    try { to = splitAddrs(decodeURIComponent(u.pathname)).filter(validAddr); } catch { return { kind: "ignore" }; }
+    if (!to.length) return { kind: "ignore" };
+    const subject = (u.searchParams.get("subject") ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 300);
+    return { kind: "mail", to, subject };
+  }
+  return { kind: "ignore" };
+}

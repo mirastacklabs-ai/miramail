@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "./api";
 import type { Folder, FolderRole } from "./types";
-import type { BulkResult, ColourEntry, MoveItem, SearchResult, SearchScope, ServerSearchResult, SourceView, UnsubInfo } from "./orgtypes";
+import type { FolderOp, BulkResult, ColourEntry, MoveItem, SearchResult, SearchScope, ServerSearchResult, SourceView, UnsubInfo } from "./orgtypes";
 
 async function call<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   if (isTauri) return invoke<T>(cmd, args);
@@ -23,7 +23,8 @@ export const orgApi = {
     call<ServerSearchResult>("search_server", { query, scope, account, folder, tzOffset: tz() }),
 
   folderCreate: (account: string, parent: string | null, name: string) => call<Folder[]>("folder_create", { account, parent, name }),
-  folderRename: (account: string, folder: string, newName: string) => call<Folder[]>("folder_rename", { account, folder, newName }),
+  folderMove: (account: string, folder: string, newParent: string | null) => call<FolderOp>("folder_move", { account, folder, newParent }),
+  folderRename: (account: string, folder: string, newName: string) => call<FolderOp>("folder_rename", { account, folder, newName }),
   folderMessageCount: (account: string, folder: string) => call<number>("folder_message_count", { account, folder }),
   folderDelete: (account: string, folder: string, confirmCount: number | null) => call<Folder[]>("folder_delete", { account, folder, confirmCount }),
   folderSubscribe: (account: string, folder: string, subscribed: boolean) => call<void>("folder_subscribe", { account, folder, subscribed }),

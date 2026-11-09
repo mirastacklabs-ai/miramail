@@ -469,3 +469,37 @@ fn refs_and_tool_runs_roundtrip_and_follow_the_conversation() {
     assert!(s.list_refs(c).unwrap().is_empty() && s.list_tool_runs(c).unwrap().is_empty());
     assert_eq!(s.list_refs(other).unwrap().len(), 1);
 }
+
+#[test]
+fn revoking_folder_grants_fails_closed_and_never_migrates() {
+    let mut s = store();
+    s.set_scope("a@x.org", "Projects", true).unwrap();
+    s.set_scope("a@x.org", "Projects/Alpha", true).unwrap();
+    s.set_scope("a@x.org", "Other", true).unwrap();
+    s.set_scope("b@x.org", "Projects", true).unwrap();
+    let mut c = conv(&["a@x.org"]);
+    c.consent_json = r#"{"scopes":[{"account":"a@x.org","folder":"Projects","allowed":true},{"account":"a@x.org","folder":"Other","allowed":true},{"account":"b@x.org","folder":"Projects","allowed":true}],"tools":true}"#.into();
+    let id = s.create_conversation(&c, T0).unwrap();
+    s.add_conv_folder(id, "a@x.org", "Projects/Alpha").unwrap();
+    s.put_ref(id, &ConvRef { reference: "r1".into(), account: "a@x.org".into(), folder: "Projects".into(), uid: 1, uidvalidity: 1 }).unwrap();
+    s.put_ref(id, &ConvRef { reference: "r2".into(), account: "a@x.org".into(), folder: "Other".into(), uid: 2, uidvalidity: 1 }).unwrap();
+
+    let n = s.revoke_folder_grants("a@x.org", &["Projects".into(), "Projects/Alpha".into()]).unwrap();
+    assert_eq!(n, 4, "2 scopes + 1 consent entry + 1 created folder");
+    let sc = s.list_scopes().unwrap();
+    assert!(sc.contains(&("a@x.org".into(), "Projects".into(), false)));
+    assert!(sc.contains(&("a@x.org".into(), "Projects/Alpha".into(), false)));
+    assert!(sc.contains(&("a@x.org".into(), "Other".into(), true)), "unrelated folder keeps its grant");
+    assert!(sc.contains(&("b@x.org".into(), "Projects".into(), true)), "other account keeps its grant");
+    assert!(!sc.iter().any(|(_, f, a)| *a && f == "Projects/Gamma"), "no grant appears under a new name");
+    let v: serde_json::Value = serde_json::from_str(&s.get_conversation(id).unwrap().unwrap().consent_json).unwrap();
+    let allowed = |a: &str, f: &str| v["scopes"].as_array().unwrap().iter().any(|x| x["account"] == a && x["folder"] == f && x["allowed"] == true);
+    assert!(!allowed("a@x.org", "Projects"));
+    assert!(allowed("a@x.org", "Other"));
+    assert!(allowed("b@x.org", "Projects"));
+    assert_eq!(v["tools"], true, "other consent fields survive");
+    assert!(s.list_conv_folders(id).unwrap().is_empty());
+    assert!(s.get_ref(id, "r1").unwrap().is_none());
+    assert!(s.get_ref(id, "r2").unwrap().is_some());
+    assert_eq!(s.revoke_folder_grants("a@x.org", &["Projects".into()]).unwrap(), 0, "idempotent");
+}

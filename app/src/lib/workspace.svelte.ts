@@ -5,6 +5,7 @@ import * as D from "./detach";
 import { app } from "./state.svelte";
 import { layout as widths } from "./layout.svelte";
 import * as T from "./wstree";
+import { moveTab } from "./tabreorder";
 import type { AttachmentData, Outgoing } from "./types";
 
 export interface ComposePayload {
@@ -109,6 +110,16 @@ class Workspace {
   stepTab(delta: 1 | -1) {
     const k = T.stepGroup(T.tabGroups(this.ws), T.activeGroupKey(this.ws), delta);
     if (k) this.selectGroup(k);
+  }
+  /** Tabs: set the order of the non-Mail tabs (persisted with the layout). */
+  reorderTabs(keys: string[]) { this.set(T.reorderTabs(this.ws, keys)); }
+  /** Tabs: move the active tab one step left / right (the Mail tab is pinned first). */
+  moveTab(delta: 1 | -1) {
+    const keys = T.tabGroups(this.ws).map((g) => g.key);
+    const i = keys.indexOf(T.activeGroupKey(this.ws) ?? "");
+    if (i < 0) return;
+    const next = moveTab(keys, i, i + delta);
+    if (next !== keys) this.reorderTabs(next.filter((k) => k !== T.MAIL_KEY));
   }
   /** Tabs: Cmd+1..8 = Nth tab, Cmd+9 = last. */
   jumpTab(n: number) {
@@ -593,6 +604,14 @@ class Workspace {
     if (e.ctrlKey && !e.metaKey && !e.altKey && e.key === "Tab") {
       if (!this.tabsOn || !app.account || app.confirmReq || this.closeReq || app.showSettings || this.keyBlock?.()) return false;
       this.stepTab(e.shiftKey ? -1 : 1);
+      this.tabFocus();
+      e.preventDefault(); e.stopPropagation();
+      return true;
+    }
+    // Ctrl+Shift+PageUp / PageDown: move the active tab left / right.
+    if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === "PageUp" || e.key === "PageDown")) {
+      if (!this.tabsOn || !app.account || app.confirmReq || this.closeReq || app.showSettings || this.keyBlock?.()) return false;
+      this.moveTab(e.key === "PageUp" ? -1 : 1);
       this.tabFocus();
       e.preventDefault(); e.stopPropagation();
       return true;

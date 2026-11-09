@@ -77,7 +77,7 @@ async fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("\nverify failed after {} ms: {}", t.elapsed().as_millis(), e.user_message());
+            eprintln!("\nverify failed after {} ms: {}\n  detail: {:?}", t.elapsed().as_millis(), e.user_message(), e);
             ExitCode::from(1)
         }
     }

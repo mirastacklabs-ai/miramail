@@ -117,6 +117,8 @@ class AppState {
     setTimeout(() => { if (this.toast?.id === id) this.toast = null; }, kind === "error" ? 7000 : 3500);
   }
   ask(r: Omit<ConfirmReq, "resolve">): Promise<boolean> {
+    // A request already showing is cancelled (false = the safe default) rather than orphaned with a promise that never settles.
+    this.confirmReq?.resolve(false);
     return new Promise((resolve) => { this.confirmReq = { ...r, resolve }; });
   }
 

@@ -270,7 +270,7 @@ fn build_window(app: &AppHandle, id: &str, geo: Geo) -> Result<WebviewWindow, St
         .initialization_script(format!("window.__MIRAMAIL_PANE__ = \"{id}\";"));
     #[cfg(target_os = "macos")]
     let b = b.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
-    b.build().map_err(|_| "Could not open a new window.".to_string())
+    crate::linknav::harden(b, app, &label).build().map_err(|_| "Could not open a new window.".to_string())
 }
 
 fn logical_geo(w: &WebviewWindow) -> Option<Geo> {

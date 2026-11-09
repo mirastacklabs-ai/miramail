@@ -89,6 +89,7 @@
             <button role="menuitem" onclick={() => { menu = false; workspace.split("col"); }}>New message below</button>
             <button role="menuitem" onclick={() => { menu = false; workspace.toggleZoom(leaf.active); }}>{zoomed ? "Unzoom" : "Zoom"}</button>
             <button role="menuitem" onclick={() => { menu = false; workspace.park(leaf.active); }}>Park to tray</button>
+            <button role="menuitem" onclick={() => { menu = false; workspace.toggleView(); }}>Switch to {workspace.tabsOn ? "Tiles" : "Tabs"} layout <span class="kbd">⇧⌘T</span></button>
             <button role="menuitem" onclick={() => { menu = false; workspace.resetLayout(); }}>Reset layout</button>
             {#if inWindow}
               <button role="menuitem" onclick={() => { menu = false; workspace.attachFocused(); }}>Attach to main window <span class="kbd">⇧⌘A</span></button>

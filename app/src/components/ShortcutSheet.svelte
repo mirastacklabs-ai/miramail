@@ -3,7 +3,7 @@
   import { platform } from "../lib/platform.svelte";
   import { SHORTCUTS } from "../lib/shortcuts";
   // Tabs layout (Preferences > Appearance > Layout). In Tabs, ⌘ 1 ... 9 pick tabs instead of Mail / Calendar.
-  const GROUPS = [...SHORTCUTS, { group: "Tabs layout", rows: [["⇧ ⌘ T", "Switch between Tiles and Tabs"], ["⌘ T", "New message in a new tab"], ["⌘ 1 ... 8 / ⌘ 9", "Jump to that tab / the last tab"], ["⌃ Tab / ⇧ ⌃ Tab", "Next / previous tab"], ["⌘ W", "Close the tab (Mail stays open)"], ["← / → on a tab", "Move between tabs, Enter opens, Delete closes"]] as [string, string][] }];
+  const GROUPS = [...SHORTCUTS, { group: "Tabs layout", rows: [["⇧ ⌘ T", "Switch between Tiles and Tabs"], ["⌘ T", "New message in a new tab"], ["⌘ 1 ... 8 / ⌘ 9", "Jump to that tab / the last tab"], ["⌃ Tab / ⇧ ⌃ Tab", "Next / previous tab"], ["⇧ ⌃ PgUp / PgDn", "Move the tab left / right"], ["⌘ W", "Close the tab (Mail stays open)"], ["← / → on a tab", "Move between tabs, Enter opens, Delete closes"]] as [string, string][] }];
 </script>
 
 <Modal title="Keyboard shortcuts" onclose={() => (platform.showCheat = false)} width={680}>

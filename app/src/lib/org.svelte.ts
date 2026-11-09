@@ -9,10 +9,12 @@ import { needsBackend, NO_CHIPS } from "./query";
 import { addAllowed, isAllowed, loadAllowed, removeAllowed, storeAllowed } from "./imgallow";
 import { addSaved, defaultName, loadSaved, removeSaved, storeSaved, type Saved } from "./savedsearch";
 import type { Folder, FolderRole, MessageSummary } from "./types";
-import type { SearchScope, SourceView, UnsubInfo } from "./orgtypes";
+import { canDropFolder, isMovable } from "./foldermove";
+import type { FolderOp, SearchScope, SourceView, UnsubInfo } from "./orgtypes";
 
 export interface UndoToast { id: number; msg: string; run: () => Promise<void> }
 export interface PromptReq { title: string; label: string; value: string; ok: string; hint?: string; resolve: (v: string | null) => void }
+export interface MovePickerReq { folder: string; resolve: (parent: string | null | undefined) => void }
 export interface SourceReq { title: string; tab: "headers" | "raw"; view: SourceView | null; error: string | null }
 
 const PAGE = 50;
@@ -253,7 +255,7 @@ class Org {
       app.notify(cur ? "Unsubscribed from the folder (it stays on the server)." : "Subscribed to the folder.");
     } catch (e) { app.fail(e); }
   }
-  private setFolders(list: Folder[]) { app.folders = list; }
+  private setFolders(list: Folder[]) { app.folders = list; this.dragFolder = null; this.folderDrop = null; }
   async createFolder(parent: string | null) {
     const account = app.account; if (!account) return;
     const name = await this.askText({ title: parent ? "New subfolder" : "New folder", label: "Name", value: "", ok: "Create", hint: "Letters, digits, spaces, - and _ only." });
@@ -262,14 +264,61 @@ class Org {
   }
   async renameFolder(f: Folder) {
     const account = app.account; if (!account) return;
-    const name = await this.askText({ title: "Rename folder", label: "New name", value: leafOf(f), ok: "Rename", hint: "Letters, digits, spaces, - and _ only." });
+    const name = await this.askText({ title: "Rename folder", label: "New name", value: leafOf(f), ok: "Rename", hint: "Letters, digits, spaces, - and _ only. Messages in this folder and its subfolders are loaded again from the server, and MIRA's access to them is removed." });
     if (!name?.trim() || name.trim() === leafOf(f)) return;
     try {
-      const wasOpen = app.folder === f.name;
-      this.setFolders(await orgApi.folderRename(account, f.name, name));
-      app.notify("Folder renamed.");
-      if (wasOpen) await app.selectFolder(app.inboxName);
-      void this.loadSubs(account);
+      const touched = this.touchesOpen(f);
+      const r = await orgApi.folderRename(account, f.name, name);
+      this.afterFolderOp(account, r, touched, "Folder renamed.");
+    } catch (e) { app.fail(e); }
+  }
+  /** Is the open folder or the open message inside `f` (or below it)? */
+  private touchesOpen(f: Folder): boolean {
+    const d = f.delimiter || "/";
+    const inside = (n: string | undefined) => !!n && (n === f.name || n.startsWith(f.name + d));
+    return inside(app.folder) || inside(app.body?.summary.folder);
+  }
+  private afterFolderOp(account: string, r: FolderOp, touched: boolean, done: string) {
+    if (app.account !== account) { void app.refreshUnread(account); return; }
+    this.setFolders(r.folders);
+    app.notify(done);
+    for (const n of r.notes) app.notify(n);
+    if (touched) {
+      // The old (folder, uid) names are gone: close the message and go to the Inbox.
+      app.body = null; app.selectedUid = null;
+      void app.selectFolder(app.inboxName);
+    }
+    void app.refreshUnread(account);
+    void this.loadSubs(account);
+  }
+  // ---- moving folders ----
+  /** Folder being dragged in the sidebar (messages use `app.dragMsg`; the two never overlap). */
+  dragFolder = $state<string | null>(null);
+  /** Drop highlight while dragging a folder: a folder name, or "" for the top-level zone. */
+  folderDrop = $state<string | null>(null);
+  /** In-app "Move to…" picker. Resolves to the chosen parent (null = top level) or undefined when cancelled. */
+  movePicker = $state<MovePickerReq | null>(null);
+  pickMoveTarget(folder: string): Promise<string | null | undefined> {
+    return new Promise((resolve) => { this.movePicker = { folder, resolve }; });
+  }
+  /** Menu entry: pick a destination in the in-app picker, then move (no extra confirm). */
+  async moveFolderPicked(f: Folder) {
+    const account = app.account; if (!account || !isMovable(app.folders, f)) return;
+    const parent = await this.pickMoveTarget(f.name);
+    if (parent !== undefined) await this.moveFolder(account, f, parent);
+  }
+  /** Drag and drop: confirm in-app, then move. */
+  async moveFolderDropped(f: Folder, parent: string | null) {
+    const account = app.account; if (!account || !canDropFolder(app.folders, f, parent)) return;
+    const to = parent === null ? "the top level" : `“${parent}”`;
+    const ok = await app.ask({ title: `Move “${leafOf(f)}” into ${to}?`, body: "The folder and its subfolders move on the server. Their messages are loaded again from there, and MIRA's access to them is removed.", ok: "Move" });
+    if (ok) await this.moveFolder(account, f, parent);
+  }
+  async moveFolder(account: string, f: Folder, parent: string | null) {
+    try {
+      const touched = this.touchesOpen(f);
+      const r = await orgApi.folderMove(account, f.name, parent);
+      this.afterFolderOp(account, r, touched, "Folder moved.");
     } catch (e) { app.fail(e); }
   }
   async deleteFolder(f: Folder) {

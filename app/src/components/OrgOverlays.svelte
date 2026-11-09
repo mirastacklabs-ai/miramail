@@ -2,11 +2,19 @@
   import { org } from "../lib/org.svelte";
   import Modal from "./Modal.svelte";
   import { fmtSize } from "../lib/util";
+  import { app } from "../lib/state.svelte";
+  import { moveTargets } from "../lib/foldermove";
 
   // ---- text prompt ----
   let value = $state("");
   $effect(() => { if (org.prompt) value = org.prompt.value; });
   function closePrompt(v: string | null) { const p = org.prompt; org.prompt = null; p?.resolve(v); }
+
+  // ---- move-folder picker ----
+  function closeMove(v: string | null | undefined) { const p = org.movePicker; org.movePicker = null; p?.resolve(v); }
+  const moveFrom = $derived(org.movePicker ? app.folders.find((f) => f.name === org.movePicker!.folder) : undefined);
+  const dests = $derived(moveFrom ? moveTargets(app.folders, moveFrom) : { top: false, folders: [] });
+  const destLabel = (f: { name: string; role: string }) => (f.role === "other" ? f.name : f.role === "inbox" ? "Inbox" : f.role[0].toUpperCase() + f.role.slice(1));
 
   // ---- source viewer ----
   const src = $derived(org.source);
@@ -22,6 +30,22 @@
       {#if p.hint}<p class="hint">{p.hint}</p>{/if}
       <div class="acts"><button type="button" class="btn ghost" onclick={() => closePrompt(null)}>Cancel</button><button class="btn" disabled={!value.trim()}>{p.ok}</button></div>
     </form>
+  </Modal>
+{/if}
+
+{#if org.movePicker && moveFrom}
+  <Modal title="Move folder" width={420} onclose={() => closeMove(undefined)}>
+    <div class="f">
+      <p class="hint">Move “{moveFrom.name}” and its subfolders to:</p>
+      <div class="dests" role="listbox" aria-label="Destination folder">
+        {#if dests.top}<button class="dest" role="option" aria-selected="false" data-autofocus onclick={() => closeMove(null)}>Top level</button>{/if}
+        {#each dests.folders as d (d.name)}
+          <button class="dest mono" role="option" aria-selected="false" onclick={() => closeMove(d.name)}>{destLabel(d)}</button>
+        {/each}
+        {#if !dests.top && dests.folders.length === 0}<p class="hint">There is nowhere else to move this folder.</p>{/if}
+      </div>
+      <div class="acts"><button type="button" class="btn ghost" onclick={() => closeMove(undefined)}>Cancel</button></div>
+    </div>
   </Modal>
 {/if}
 
@@ -64,6 +88,9 @@
   .f { display: grid; gap: 8px; }
   .inp { width: 100%; background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; font: 400 0.9rem var(--font-mono); }
   .inp:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .dests { display: grid; gap: 1px; max-height: 50vh; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); padding: 4px; }
+  .dest { text-align: left; background: none; border: 0; padding: 7px 10px; color: var(--ink); font-size: 0.8667rem; border-radius: var(--radius); overflow-wrap: anywhere; cursor: pointer; }
+  .dest:hover, .dest:focus-visible { background: color-mix(in srgb, var(--line) 50%, transparent); }
   .hint { margin: 0; font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
   .err { margin: 0; color: var(--danger); overflow-wrap: anywhere; }
   .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }

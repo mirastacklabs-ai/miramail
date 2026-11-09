@@ -8,7 +8,7 @@ use thiserror::Error;
 pub enum DetectError {
     #[error("invalid email address: {0}")]
     InvalidEmail(String),
-    /// Google and Microsoft (parked until a later version).
+    /// Microsoft (OAuth only, not supported yet). Gmail works with an app password.
     #[error("{provider} accounts are not supported yet")]
     UnsupportedProvider { provider: String },
     #[error("no mail server settings found")]
@@ -20,7 +20,7 @@ impl DetectError {
         match self {
             DetectError::InvalidEmail(_) => "That doesn't look like an email address.".into(),
             DetectError::UnsupportedProvider { .. } => {
-                "Gmail, Outlook and Microsoft 365 accounts aren't supported yet. They are planned for a later version.".into()
+                "Microsoft accounts (Outlook, Hotmail, Microsoft 365) aren't supported yet. They need Microsoft sign-in, which is planned for a later version.".into()
             }
             DetectError::NoCandidates => {
                 "Couldn't find your mail server. Enter the settings in Advanced.".into()
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn detect_error_messages() {
         let e = DetectError::UnsupportedProvider { provider: "Microsoft".into() };
-        assert!(e.user_message().starts_with("Gmail, Outlook"));
+        assert!(e.user_message().starts_with("Microsoft accounts"));
         assert!(DetectError::NoCandidates.user_message().contains("Advanced"));
     }
 

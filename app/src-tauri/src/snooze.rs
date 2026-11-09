@@ -246,6 +246,24 @@ impl SnoozeStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
     }
 
+    /// The first of `folders` that an unfinished snooze of `account` still depends on: the Snoozed folder a
+    /// `moved` entry waits in, or the folder a `hidden` entry is hidden in. Renaming or moving such a folder
+    /// would strand the entry, so folder rename/move refuses until the user wakes or forgets it. Any state
+    /// counts (a `failed` entry still points at the folder).
+    pub fn folder_in_use(&self, account: &str, folders: &[String]) -> Result<Option<String>, String> {
+        let c = self.lock()?;
+        let mut st = c.prepare("SELECT mode, folder, snooze_folder FROM snooze WHERE account=?1").map_err(|e| e.to_string())?;
+        let rows = st.query_map([account], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?))).map_err(|e| e.to_string())?;
+        for r in rows {
+            let (mode, folder, snooze_folder) = r.map_err(|e| e.to_string())?;
+            let used = if mode == "hidden" { Some(folder) } else { snooze_folder };
+            if let Some(u) = used.filter(|u| folders.iter().any(|f| f == u)) {
+                return Ok(Some(u));
+            }
+        }
+        Ok(None)
+    }
+
     /// `(uid, uidvalidity)` of messages of this folder that are hidden by a pending snooze. A `failed` entry no
     /// longer hides its message (it must stay reachable).
     pub fn hidden(&self, account: &str, folder: &str) -> HashSet<(u32, u32)> {
@@ -775,6 +793,21 @@ mod tests {
             from: "bob@x".into(),
             wake_at: at,
         }
+    }
+
+    #[test]
+    fn folder_in_use_sees_snoozed_folder_and_hidden_folder() {
+        let s = SnoozeStore::open_in_memory().unwrap();
+        let names = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(s.folder_in_use("a@x.org", &names(&["Snoozed"])).unwrap(), None);
+        s.add(new(1, 5_000, Mode::Moved), 1_000).unwrap();
+        assert_eq!(s.folder_in_use("a@x.org", &names(&["Work", "Snoozed"])).unwrap().as_deref(), Some("Snoozed"));
+        assert_eq!(s.folder_in_use("a@x.org", &names(&["INBOX"])).unwrap(), None, "a moved entry depends on its Snoozed folder, not the source");
+        assert_eq!(s.folder_in_use("b@x.org", &names(&["Snoozed"])).unwrap(), None, "other account");
+        let mut h = new(2, 5_000, Mode::Hidden);
+        h.folder = "Work/Alpha".into();
+        s.add(h, 1_000).unwrap();
+        assert_eq!(s.folder_in_use("a@x.org", &names(&["Work", "Work/Alpha"])).unwrap().as_deref(), Some("Work/Alpha"));
     }
 
     #[tokio::test]

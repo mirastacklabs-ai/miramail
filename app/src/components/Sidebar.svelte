@@ -10,6 +10,7 @@
   import OutboxLink from "./OutboxLink.svelte";
   import SnoozedLink from "./SnoozedLink.svelte";
   import { org } from "../lib/org.svelte";
+  import { canDropFolder, isMovable } from "../lib/foldermove";
   import { contactsUi } from "../lib/contacts.svelte";
 
   const dotTitle = (s?: string) => s ?? "unknown";
@@ -61,6 +62,15 @@
   }
   const menuFolder = $derived(menu ? app.folders.find((f) => f.name === menu!.folder) : undefined);
   const special = (f: Folder) => f.role !== "other" || f.name.toUpperCase() === "INBOX";
+  const dragged = $derived(org.dragFolder !== null ? app.folders.find((f) => f.name === org.dragFolder) : undefined);
+  const folderDropOk = (target: string | null) => !!dragged && canDropFolder(app.folders, dragged, target);
+  // A folder drag that never ended (its row was re-rendered away) must not block message drops.
+  $effect(() => { void app.folders; void app.folder; org.dragFolder = null; org.folderDrop = null; });
+  function endFolderDrag() { org.dragFolder = null; org.folderDrop = null; }
+  function dropFolderOn(target: string | null) {
+    const f = dragged; endFolderDrag();
+    if (f && canDropFolder(app.folders, f, target)) void org.moveFolderDropped(f, target);
+  }
   function act(fn: () => void) { menu = null; fn(); }
   const nodeLabel = (n: Node) => (n.depth === 0 ? label(n.f) : n.leaf);
   const themeLabel = $derived(app.theme === "system" ? "Theme: system" : app.theme === "dark" ? "Theme: dark" : app.theme === "contrast" ? "Theme: high contrast" : "Theme: light");
@@ -126,10 +136,13 @@
         {:else}<span class="twist sp"></span>{/if}
         {#if n.selectable}
           {@const ls = app.liveStateOf(f.name)}
-          <button class="folder" class:on={f.name === app.folder} class:drop={app.dropFolder === f.name} aria-current={f.name === app.folder ? "true" : undefined} onclick={() => app.selectFolder(f.name)} oncontextmenu={(e) => ctx(e, f)}
-            ondragover={(e) => { if (app.dragMsg && app.dragMsg.folder !== f.name) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; app.dropFolder = f.name; } }}
-            ondragleave={() => { if (app.dropFolder === f.name) app.dropFolder = null; }}
-            ondrop={(e) => { e.preventDefault(); const d = app.dragMsg; app.dropFolder = null; app.dragMsg = null; if (d && d.folder !== f.name) void (d.uids && d.uids.length > 1 ? org.moveUids(d.uids, { folder: f.name }, d.folder) : app.moveToFolder(f.name, d.uid, d.folder)); }}>
+          <button class="folder" class:on={f.name === app.folder} class:drop={app.dropFolder === f.name || org.folderDrop === f.name} aria-current={f.name === app.folder ? "true" : undefined} onclick={() => app.selectFolder(f.name)} oncontextmenu={(e) => ctx(e, f)}
+            draggable={isMovable(app.folders, f)}
+            ondragstart={(e) => { org.dragFolder = f.name; if (e.dataTransfer) { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", f.name); } }}
+            ondragend={endFolderDrag}
+            ondragover={(e) => { if (org.dragFolder !== null && !app.dragMsg) { if (folderDropOk(f.name)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; org.folderDrop = f.name; } return; } if (app.dragMsg && app.dragMsg.folder !== f.name) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; app.dropFolder = f.name; } }}
+            ondragleave={() => { if (app.dropFolder === f.name) app.dropFolder = null; if (org.folderDrop === f.name) org.folderDrop = null; }}
+            ondrop={(e) => { e.preventDefault(); if (org.dragFolder !== null && !app.dragMsg) { dropFolderOn(f.name); return; } const d = app.dragMsg; app.dropFolder = null; app.dragMsg = null; if (d && d.folder !== f.name) void (d.uids && d.uids.length > 1 ? org.moveUids(d.uids, { folder: f.name }, d.folder) : app.moveToFolder(f.name, d.uid, d.folder)); }}>
             <span class="ell">{nodeLabel(n)}</span>
             {#if ls && ls.state !== "off"}<span class="live {ls.state}" role="img" aria-label="Live: {ls.state}{ls.message ? '. ' + ls.message : ''}" title={ls.message ?? `Live: ${ls.state}`}></span>{/if}
             {#if c > 0}<span class="unread" role="img" aria-label="{c} unread"><span class="udot"></span><span class="mono n" aria-hidden="true">{c}</span></span>{/if}
@@ -154,6 +167,14 @@
   </nav>
   {/if}
 
+  {#if dragged && folderDropOk(null)}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="topzone" class:drop={org.folderDrop === ""} role="group" aria-label="Drop here to move the folder to the top level"
+      ondragover={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; org.folderDrop = ""; }}
+      ondragleave={() => { if (org.folderDrop === "") org.folderDrop = null; }}
+      ondrop={(e) => { e.preventDefault(); dropFolderOn(null); }}>Drop here for top level</div>
+  {/if}
+
   {#if app.view !== "calendar"}<button class="newf" onclick={() => org.createFolder(null)}>+ New folder</button>{/if}
 
   {#if menu}
@@ -169,6 +190,7 @@
         <button role="menuitem" onclick={() => act(() => void org.createFolder(f.name))}>New subfolder…</button>
         {#if !special(f)}
           <button role="menuitem" onclick={() => act(() => void org.renameFolder(f))}>Rename…</button>
+          {#if isMovable(app.folders, f)}<button role="menuitem" onclick={() => act(() => void org.moveFolderPicked(f))}>Move to…</button>{/if}
           <button role="menuitem" class="danger" onclick={() => act(() => void org.deleteFolder(f))}>Delete folder…</button>
         {/if}
         {#if f.role === "trash" || f.role === "junk"}
@@ -234,6 +256,8 @@
   .twist svg.rot { transform: rotate(90deg); }
   .twist.sp { visibility: hidden; }
   .folder.drop { background: color-mix(in srgb, var(--accent) 22%, transparent); outline: 1px dashed var(--accent); outline-offset: -2px; color: var(--ink); }
+  .topzone { border: 1px dashed var(--line); border-radius: var(--radius); padding: 6px 10px; text-align: center; font-size: 0.7667rem; letter-spacing: .06em; color: var(--muted); }
+  .topzone.drop { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); color: var(--ink); }
   .folder.head { cursor: default; opacity: .7; }
   .folder { flex: 1; min-width: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; background: none; border: 0; border-left: 2px solid transparent; padding: var(--folder-py) 10px; text-align: left; text-transform: uppercase; letter-spacing: .1em; font-size: 0.8667rem; color: var(--muted); border-radius: 0 var(--radius) var(--radius) 0; }
   .folder:hover { color: var(--ink); background: color-mix(in srgb, var(--line) 50%, transparent); }

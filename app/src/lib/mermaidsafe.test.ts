@@ -1,7 +1,7 @@
 // @ts-nocheck -- run with: node --experimental-strip-types --test src/lib/mermaidsafe.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyMermaidError, cleanMermaidSource, diagramAlt, isDrawableMermaid, MAX_MERMAID_SRC, MERMAID_LAYOUT, mermaidErrorReason, mermaidTooLarge, sizeSvg, svgDataUrl, themeVariables, withTimeout } from "./mermaidsafe.ts";
+import { classifyMermaidError, cleanMermaidSource, DIAGRAM_FONT_STACK, diagramAlt, diagramImgStyle, embedSvgFont, flowchartOrientations, isDrawableMermaid, MAX_MERMAID_SRC, MERMAID_LAYOUT, mermaidErrorReason, mermaidTooLarge, ORIENT_MARGIN, pickOrientation, sizeSvg, svgDataUrl, svgViewBoxSize, themeVariables, withTimeout } from "./mermaidsafe.ts";
 import { parseMarkdown } from "./aimd.ts";
 
 test("cleanMermaidSource draws left-right flowcharts top-down", () => {
@@ -95,4 +95,63 @@ test("only parse-step source errors are blamed on the diagram", () => {
   assert.equal(classifyMermaidError("parse", new Error("Failed to fetch dynamically imported module: x.js")), "app");
   assert.equal(classifyMermaidError("parse", new Error("timeout after 5 s")), "app");
   assert.equal(classifyMermaidError("parse", new TypeError("undefined is not an object")), "app");
+});
+
+test("flowchartOrientations gives both drawings and the stated direction", () => {
+  assert.deepEqual(flowchartOrientations("graph TD\nA-->B"), { stated: "TD", td: "graph TD\nA-->B", lr: "graph LR\nA-->B" });
+  assert.deepEqual(flowchartOrientations("flowchart LR\nA-->B"), { stated: "LR", td: "flowchart TD\nA-->B", lr: "flowchart LR\nA-->B" });
+  assert.deepEqual(flowchartOrientations("graph TB;A-->B"), { stated: "TD", td: "graph TD;A-->B", lr: "graph LR;A-->B" });
+  assert.deepEqual(flowchartOrientations("graph BT\nA-->B"), { stated: "TD", td: "graph BT\nA-->B", lr: "graph LR\nA-->B" });
+  assert.deepEqual(flowchartOrientations("graph RL\nA-->B"), { stated: "LR", td: "graph TD\nA-->B", lr: "graph RL\nA-->B" });
+  assert.deepEqual(flowchartOrientations("flowchart\nA-->B"), { stated: null, td: "flowchart TD\nA-->B", lr: "flowchart LR\nA-->B" });
+  assert.deepEqual(flowchartOrientations("flowchart-elk LR\nA-->B"), { stated: "LR", td: "flowchart TD\nA-->B", lr: "flowchart LR\nA-->B" });
+  const fm = flowchartOrientations('---\nconfig:\n  x: 1\n---\n%%{init: {}}%%\ngraph LR\nA-->B\nclick A call f()');
+  assert.deepEqual(fm, { stated: "LR", td: "graph TD\nA-->B", lr: "graph LR\nA-->B" }, "cleaned like cleanMermaidSource");
+  assert.equal(flowchartOrientations("graph TD\nsubgraph S\ndirection LR\nA-->B\nend").lr, "graph LR\nsubgraph S\ndirection LR\nA-->B\nend", "subgraph direction untouched");
+  assert.equal(flowchartOrientations("sequenceDiagram\nA->>B: graph LR"), null);
+  assert.equal(flowchartOrientations("graphical TD\nA-->B"), null);
+  assert.equal(flowchartOrientations("stateDiagram-v2\n[*]-->A"), null);
+});
+test("pickOrientation keeps the narrower drawing; a stated direction needs a clear margin to lose", () => {
+  assert.equal(ORIENT_MARGIN, 0.8);
+  assert.equal(pickOrientation(null, 300, 200), "LR");
+  assert.equal(pickOrientation(null, 200, 300), "TD");
+  assert.equal(pickOrientation(null, 200, 200), "TD", "tie goes to top-down");
+  assert.equal(pickOrientation("TD", 1000, 790), "LR");
+  assert.equal(pickOrientation("TD", 1000, 810), "TD");
+  assert.equal(pickOrientation("LR", 790, 1000), "TD");
+  assert.equal(pickOrientation("LR", 810, 1000), "LR");
+  assert.equal(pickOrientation("LR", 800, 1000), "LR", "exactly at the margin keeps the stated one");
+});
+test("svgViewBoxSize reads the root viewBox only", () => {
+  assert.deepEqual(svgViewBoxSize('<svg id="m" viewBox="-8 -8 120.5 80"><svg viewBox="0 0 1 1"/></svg>'), { w: 120.5, h: 80 });
+  assert.deepEqual(svgViewBoxSize('<svg viewBox="0,0,10,20"/>'), { w: 10, h: 20 });
+  assert.equal(svgViewBoxSize("<svg><g/></svg>"), null);
+  assert.equal(svgViewBoxSize("<p>no svg</p>"), null);
+});
+test("embedSvgFont puts an @font-face first in the root svg, and only for a woff2 data: URL", () => {
+  const font = "data:font/woff2;base64,d09GMgABAAA+/w==";
+  const out = embedSvgFont('<svg width="1" viewBox="0 0 1 1"><style>#m{}</style><g/></svg>', font);
+  assert.equal(out, '<svg width="1" viewBox="0 0 1 1"><style>@font-face{font-family:"Oswald";src:url(' + font + ') format("woff2");font-weight:200 700;font-style:normal}</style><style>#m{}</style><g/></svg>');
+  const svg = '<svg viewBox="0 0 1 1"><g/></svg>';
+  assert.equal(embedSvgFont(svg, "https://x.test/f.woff2"), svg);
+  assert.equal(embedSvgFont(svg, "data:font/woff2;base64,AAAA) } * { x: url(https://x.test/"), svg);
+  assert.equal(embedSvgFont(svg, "data:font/woff;base64,AAAA"), svg);
+  assert.equal(embedSvgFont("<p>x</p>", font), "<p>x</p>");
+});
+test("diagram text uses the UI font first, then local fallbacks", () => {
+  const v = themeVariables({ bg: "#0a0a0a", text: "#e6e6e6", line: "#8f8f8f", accent: "#2bd4bf", surface: "#191919" });
+  assert.equal(v.fontFamily, DIAGRAM_FONT_STACK);
+  assert.match(DIAGRAM_FONT_STACK, /^"Oswald", .*sans-serif$/);
+});
+test("diagramImgStyle gives the drawing's own size in px, never pre-multiplied by the chat scale", () => {
+  const svg = sizeSvg('<svg id="m" width="100%" viewBox="0 0 370.5 393" style="max-width: 370px;"><g/></svg>');
+  assert.equal(diagramImgStyle(svgViewBoxSize(svg)), "width:370.5px;height:393px");
+  // Same numbers as the width/height sizeSvg writes, so the explicit size and the image's intrinsic size agree.
+  assert.match(svg, /^<svg width="370\.5" height="393"/);
+  assert.equal(diagramImgStyle(null), "");
+  assert.equal(diagramImgStyle({ w: 0, h: 10 }), "");
+  assert.equal(diagramImgStyle({ w: 10, h: -1 }), "");
+  assert.equal(diagramImgStyle({ w: Number.NaN, h: 10 }), "");
+  assert.equal(diagramImgStyle({ w: Infinity, h: 10 }), "");
 });

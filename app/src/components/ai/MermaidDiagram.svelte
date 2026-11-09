@@ -3,11 +3,13 @@
   import { onMount } from "svelte";
   import { renderMermaid } from "../../lib/mermaidrender";
   import { ai } from "../../lib/ai.svelte";
-  import { diagramAlt, type MermaidResult, type ThemeColors } from "../../lib/mermaidsafe";
+  import { prefs } from "../../lib/prefs.svelte";
+  import { diagramAlt, diagramImgStyle, type MermaidResult, type ThemeColors } from "../../lib/mermaidsafe";
 
   let { src }: { src: string } = $props();
   let res = $state<MermaidResult | null>(null);
   const url = $derived(res?.ok ? res.url : null);
+  const imgStyle = $derived(res?.ok ? diagramImgStyle(res.size) : "");
   const fail = $derived(res && !res.ok ? res : null);
   let showSrc = $state(false);
   let themeTick = $state(0);
@@ -48,7 +50,9 @@
     <pre class="mono selectable" tabindex="0" aria-label="Diagram source"><code>{src}</code></pre>
   {:else}
     {#if url}
-      <div class="pan"><img src={url} {alt} /></div>
+      <!-- A-/A+ (prefs.chatScale) scales the diagram through the chat's zoom, like the text. The <img> has an explicit
+           px size and is recreated at each step so the new size is laid out and painted fresh. -->
+      <div class="pan">{#key prefs.v.chatScale}<img src={url} {alt} style={imgStyle} />{/key}</div>
     {:else}
       <p class="note" role="status">Drawing diagram…</p>
     {/if}
@@ -64,7 +68,7 @@
   .dg { margin: 0; display: grid; gap: 6px; justify-items: start; min-width: 0; }
   /* Wide diagrams keep their readable size and scroll sideways instead of shrinking to fit the column. */
   .pan { max-width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
-  img { display: block; max-width: none; height: auto; padding: 8px; user-select: none; }
+  img { display: block; box-sizing: content-box; max-width: none; height: auto; padding: 8px; user-select: none; }
   .note { margin: 0; color: var(--muted); font-size: 0.8667rem; }
   .tog { font-size: 0.6667rem; text-transform: uppercase; letter-spacing: .1em; padding: 1px 6px; background: none; border: 1px solid var(--line); border-radius: var(--radius); color: var(--muted); }
   .tog:hover { color: var(--ink); border-color: var(--muted); }

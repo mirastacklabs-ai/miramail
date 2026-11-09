@@ -13,6 +13,7 @@ pub mod error;
 pub mod foldermgmt;
 pub mod imap;
 pub mod mime;
+pub mod safety;
 pub mod sanitize;
 pub mod search;
 pub mod secrets;
