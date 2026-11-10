@@ -784,7 +784,7 @@ mod p2 {
     async fn consent_flag_gates_the_proposal_tools_and_old_consents_stay_read_only() {
         let c: Consent = serde_json::from_str(r#"{"scopes":[],"redaction":{"stripQuotes":true,"shortenLinks":true,"maskAddresses":false},"tools":true}"#).unwrap();
         assert!(c.tools && !c.suggest, "consents saved before P2 are read-only");
-        for (suggest, n) in [(false, 7usize), (true, 14)] {
+        for (suggest, n) in [(false, 7usize), (true, 15)] {
             let m = Mock::start(vec![oa_text("hi")]).await;
             let (st, cid) = setup(&m, storage(), suggest).await;
             assert_eq!(st.get_conversation(cid).unwrap().conversation.suggest_enabled, suggest);
@@ -967,13 +967,13 @@ mod p3 {
 
     #[tokio::test]
     async fn draft_tools_need_tools_suggest_and_the_draft_host() {
-        for (suggest, drafts, n) in [(false, true, 7usize), (true, false, 14), (true, true, 16)] {
+        for (suggest, drafts, n) in [(false, true, 7usize), (true, false, 15), (true, true, 17)] {
             let m = Mock::start(vec![oa_text("hi")]).await;
             let (st, cid) = setup(&m, storage(), suggest, drafts).await;
             st.send(cid, "hello".into(), &VecSink::default()).await.unwrap();
             let names = tool_names(&m);
             assert_eq!(names.len(), n, "suggest={suggest} drafts={drafts}");
-            assert_eq!(names.contains(&"draft_reply".to_string()), n == 16);
+            assert_eq!(names.contains(&"draft_reply".to_string()), n == 17);
         }
     }
 
@@ -1189,7 +1189,7 @@ mod cal_p {
     async fn camel_case_consent_gates_the_calendar_tools_and_old_consents_have_none() {
         let old: Consent = serde_json::from_str(r#"{"scopes":[],"redaction":{"stripQuotes":true,"shortenLinks":true,"maskAddresses":false},"tools":true,"suggest":true}"#).unwrap();
         assert!(!old.calendar.enabled && old.calendar.calendars.is_empty());
-        for (json, calendar, n) in [(CONSENT_JSON, true, 25usize), (&CONSENT_JSON.replace("\"enabled\":true", "\"enabled\":false"), false, 14 + 2)] {
+        for (json, calendar, n) in [(CONSENT_JSON, true, 26usize), (&CONSENT_JSON.replace("\"enabled\":true", "\"enabled\":false"), false, 15 + 2)] {
             let m = Mock::start(vec![oa_text("hi")]).await;
             let (st, cid, _env) = setup(&m, json).await;
             assert_eq!(st.get_conversation(cid).unwrap().conversation.calendar_enabled, calendar);
@@ -1197,7 +1197,7 @@ mod cal_p {
             let names = tool_names(&m);
             assert_eq!(names.contains(&"list_events".to_string()), calendar, "{names:?}");
             assert_eq!(names.contains(&"propose_event".to_string()), calendar);
-            assert_eq!(names.len(), if calendar { n } else { 16 }, "{names:?}");
+            assert_eq!(names.len(), if calendar { n } else { 17 }, "{names:?}");
             // the environment note travels with the user message, never in the system prompt
             let body: Value = serde_json::from_slice(&m.requests()[0].body).unwrap();
             let sys = body["messages"][0]["content"].as_str().unwrap();

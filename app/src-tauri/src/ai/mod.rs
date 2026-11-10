@@ -68,6 +68,8 @@ pub struct AiState {
     cal: Mutex<Option<Arc<dyn CalendarHost>>>,
     /// Calendar write access, used only by the calendar executor after an explicit approval / undo.
     cal_actions: Mutex<Option<Arc<dyn CalActionHost>>>,
+    /// Turns a rule on the way the Rules screen does (cursor baseline); used only when the user approves a rule change.
+    rule_hook: Mutex<Option<Arc<dyn proposals::RuleHook>>>,
     /// Test seam for the per-turn environment note (production reads the clock and the Mac's zone).
     env_source: Mutex<Option<Arc<dyn Fn() -> aichat::context::EnvInfo + Send + Sync>>>,
 }
@@ -80,7 +82,7 @@ pub(crate) type TestHook = Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Fu
 
 impl AiState {
     pub fn new(store: Store, secrets: Arc<dyn SecretStore>) -> Self {
-        AiState { store: Arc::new(Mutex::new(store)), secrets, inflight: InFlight::new(), limits: Limits::default(), mail: Mutex::new(None), actions: Mutex::new(None), drafts: Mutex::new(None), busy: Arc::new(Mutex::new(Default::default())), consent_gate: tokio::sync::Mutex::new(()), consent_check_timeout: std::time::Duration::from_secs(10), #[cfg(test)] after_claim_hook: Mutex::new(None), cal: Mutex::new(None), cal_actions: Mutex::new(None), env_source: Mutex::new(None) }
+        AiState { store: Arc::new(Mutex::new(store)), secrets, inflight: InFlight::new(), limits: Limits::default(), mail: Mutex::new(None), actions: Mutex::new(None), drafts: Mutex::new(None), busy: Arc::new(Mutex::new(Default::default())), consent_gate: tokio::sync::Mutex::new(()), consent_check_timeout: std::time::Duration::from_secs(10), #[cfg(test)] after_claim_hook: Mutex::new(None), cal: Mutex::new(None), cal_actions: Mutex::new(None), rule_hook: Mutex::new(None), env_source: Mutex::new(None) }
     }
 
     /// Open `ai.db` (created on first use). No network.
@@ -102,6 +104,11 @@ impl AiState {
     /// Install the read-only access the draft tools use.
     pub fn set_draft_host(&self, host: Arc<dyn DraftHost>) {
         *self.drafts.lock().unwrap_or_else(|e| e.into_inner()) = Some(host);
+    }
+
+    /// Install the rule-enable hook used when the user approves (or undoes) a rule-change suggestion.
+    pub fn set_rule_hook(&self, hook: Arc<dyn proposals::RuleHook>) {
+        *self.rule_hook.lock().unwrap_or_else(|e| e.into_inner()) = Some(hook);
     }
 
     /// Install the calendar access used by conversations whose consent includes the calendar.
@@ -701,7 +708,11 @@ impl AiState {
 
     fn executor(&self) -> R<Executor> {
         let host = self.action_host().ok_or_else(|| "Changing mail isn't available right now.".to_string())?;
-        Ok(Executor::new(self.store.clone(), host, system_clock(), self.busy.clone()))
+        let ex = Executor::new(self.store.clone(), host, system_clock(), self.busy.clone());
+        Ok(match self.rule_hook.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            Some(h) => ex.with_rule_hook(h),
+            None => ex,
+        })
     }
 
     fn summary_of(st: &mut Store, p: &proposals::Proposal) -> store::Result<ProposalSummary> {

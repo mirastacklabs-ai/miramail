@@ -48,17 +48,44 @@ fn reject_role_name(leaf: &str) -> std::result::Result<(), String> {
     Ok(())
 }
 
-/// Full name of a new folder named `leaf` under `parent` (a folder name, or `None` for the top level).
-pub fn child_name(folders: &[Folder], parent: Option<&str>, leaf: &str) -> std::result::Result<String, String> {
+/// Full name of a new folder named `leaf` under `parent` (a folder name, or `None` for the top level),
+/// WITHOUT the collision check (so a caller can reuse an existing folder of that name).
+pub fn child_full_name(folders: &[Folder], parent: Option<&str>, leaf: &str) -> std::result::Result<String, String> {
     let leaf = validate_new_folder_name(leaf)?;
     reject_role_name(&leaf)?;
-    let name = match parent {
+    Ok(match parent {
         None => leaf,
         Some(p) => {
             let pf = find(folders, p).ok_or("The parent folder no longer exists.")?;
-            format!("{}{}{}", pf.name, delim_of(pf), leaf)
+            check_parent_role(pf)?;
+            let d = pf.delimiter.clone().filter(|d| !d.is_empty()).ok_or("This server does not support folders inside folders.")?;
+            format!("{}{}{}", pf.name, d, leaf)
         }
-    };
+    })
+}
+
+/// Special folders (Trash, Junk, Sent, Drafts) can't hold new subfolders made on the assistant's or the user's behalf.
+/// INBOX stays allowed: servers that keep every folder under `INBOX.` need it.
+fn check_parent_role(pf: &Folder) -> std::result::Result<(), String> {
+    match pf.role {
+        FolderRole::Trash | FolderRole::Junk | FolderRole::Sent | FolderRole::Drafts => Err("A new folder can't be created inside a special folder such as Trash, Junk, Sent or Drafts.".into()),
+        _ => Ok(()),
+    }
+}
+
+/// `Ok` when `parent` exists and may hold a new subfolder (see [`child_full_name`]).
+pub fn parent_allows_children(folders: &[Folder], parent: &str) -> std::result::Result<(), String> {
+    let pf = find(folders, parent).ok_or("The parent folder no longer exists.")?;
+    check_parent_role(pf)?;
+    if pf.delimiter.as_deref().is_none_or(str::is_empty) {
+        return Err("This server does not support folders inside folders.".into());
+    }
+    Ok(())
+}
+
+/// Full name of a new folder named `leaf` under `parent` (a folder name, or `None` for the top level).
+pub fn child_name(folders: &[Folder], parent: Option<&str>, leaf: &str) -> std::result::Result<String, String> {
+    let name = child_full_name(folders, parent, leaf)?;
     if folders.iter().any(|f| f.name.eq_ignore_ascii_case(&name)) {
         return Err("A folder with that name already exists.".into());
     }
@@ -271,6 +298,21 @@ mod tests {
             f("Projects/Alpha", FolderRole::Other, "/"),
             f("Misc", FolderRole::Other, "/"),
         ]
+    }
+
+    #[test]
+    fn parent_roles_and_missing_delimiter() {
+        let t = tree();
+        for p in ["Trash", "Junk"] {
+            assert!(child_name(&t, Some(p), "X").unwrap_err().contains("special folder"), "{p}");
+            assert!(parent_allows_children(&t, p).is_err());
+        }
+        assert_eq!(child_name(&t, Some("INBOX"), "X").unwrap(), "INBOX/X", "INBOX may hold folders");
+        assert!(parent_allows_children(&t, "Projects").is_ok());
+        let flat = vec![Folder { name: "INBOX".into(), delimiter: None, role: FolderRole::Inbox, selectable: true }, Folder { name: "Misc".into(), delimiter: None, role: FolderRole::Other, selectable: true }];
+        assert_eq!(child_name(&flat, Some("Misc"), "X").unwrap_err(), "This server does not support folders inside folders.");
+        assert!(parent_allows_children(&flat, "Misc").is_err());
+        assert_eq!(child_name(&flat, None, "Top").unwrap(), "Top", "top level still works");
     }
 
     #[test]

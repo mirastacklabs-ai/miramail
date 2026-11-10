@@ -580,6 +580,17 @@ pub struct Cursor {
     pub last_uid: u32,
 }
 
+/// A short, stable fingerprint (FNV-1a) of everything about a stored rule that a rule-change suggestion
+/// depends on: name, conditions/actions, and on/off. Used to refuse an approval when the rule changed since.
+pub fn rule_fingerprint(r: &Rule) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in r.name.bytes().chain([0u8]).chain(r.spec_json.bytes()).chain([0u8, u8::from(r.enabled)]).chain(r.account.bytes()) {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
 pub fn clean_rule_name(n: &str) -> Result<String, String> {
     let t = clean_line(n, MAX_NAME_CHARS + 1);
     if t.is_empty() {
@@ -676,6 +687,22 @@ impl Store {
 
     pub fn set_rule_enabled(&mut self, id: i64, enabled: bool, now: i64) -> StoreResult<bool> {
         Ok(self.conn_mut().execute("UPDATE rules SET enabled=?2, updated_at=?3 WHERE id=?1", params![id, enabled, now])? > 0)
+    }
+
+    /// Set on/off only if the stored rule still is exactly `expect` (name, spec, on/off, account). `false` = it changed.
+    pub fn set_rule_enabled_matching(&mut self, expect: &Rule, enabled: bool, now: i64) -> StoreResult<bool> {
+        Ok(self.conn_mut().execute(
+            "UPDATE rules SET enabled=?2, updated_at=?3 WHERE id=?1 AND name=?4 AND spec_json=?5 AND enabled=?6 AND account=?7",
+            params![expect.id, enabled, now, expect.name, expect.spec_json, expect.enabled, expect.account],
+        )? > 0)
+    }
+
+    /// Delete only if the stored rule still is exactly `expect`. `false` = it changed or is gone.
+    pub fn delete_rule_matching(&mut self, expect: &Rule) -> StoreResult<bool> {
+        Ok(self.conn_mut().execute(
+            "DELETE FROM rules WHERE id=?1 AND name=?2 AND spec_json=?3 AND enabled=?4 AND account=?5",
+            params![expect.id, expect.name, expect.spec_json, expect.enabled, expect.account],
+        )? > 0)
     }
 
     pub fn delete_rule(&mut self, id: i64) -> StoreResult<bool> {
@@ -1257,7 +1284,13 @@ impl RuleRunner {
                 let items: Vec<NewItem> = matched.iter().map(|m| item(m, folder, m.uid, m.uidvalidity, &label)).collect();
                 let title = proposals::title_for(kind, &params, items.len(), &clean_line(&label, 80));
                 let np = NewProposal { conv_id: 0, kind, params, title, reason: reason.clone(), warnings: vec![], items };
-                let (pid, res) = self.step(np, &src_scope, now).await?;
+                // The rule itself (the user's own automation, not a chat) names its destination, so it is allowed
+                // next to the source folder; the executor now checks the destination against the scope it is given.
+                let mut move_scope = src_scope.clone();
+                if let Some(d) = np.params.dest_folder.clone().filter(|_| kind == Kind::Move) {
+                    move_scope.push(Scope { account: account.to_string(), folder: d });
+                }
+                let (pid, res) = self.step(np, &move_scope, now).await?;
                 proposal_ids.push(pid);
                 now_at.clear();
                 match res {

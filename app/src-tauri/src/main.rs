@@ -109,6 +109,7 @@ fn main() {
             ai.set_calendar_hosts(cal_host.clone(), cal_host);
             // Local rules + template auto-reply: same ai.db and executor, no model, no AI endpoint.
             let cache = Arc::new(automation::CacheMail::new(storage.clone()));
+            ai.set_rule_hook(Arc::new(automation::AppRuleHook { store: ai.store_handle(), busy: ai.busy_handle(), actions: mail_host.clone(), mail: cache.clone(), now: Arc::new(automation::system_now) }));
             let auto = automation::Automation::new(
                 ai.store_handle(),
                 ai.busy_handle(),

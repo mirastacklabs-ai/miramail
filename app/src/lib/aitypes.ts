@@ -59,7 +59,7 @@ export type AiEvent =
   | { type: "rule"; id: string; summary: string };                      // P4: a rule was proposed and saved OFF; id = rule id (decimal string)
 
 // ---- Proposals (P2): suggested changes the user approves one by one ----
-export type ProposalKind = "move" | "archive" | "trash" | "flag" | "create_folder" | "event_create" | "event_change" | "event_cancel" | "invite_response";
+export type ProposalKind = "move" | "archive" | "trash" | "flag" | "create_folder" | "rule_change" | "event_create" | "event_change" | "event_cancel" | "invite_response";
 export type ProposalState = "proposed" | "approved" | "executing" | "done" | "failed" | "partially_done" | "rejected" | "expired" | "undone";
 export type ItemStatus = "pending" | "done" | "failed" | "skipped" | "noop" | "undone" | "undo_failed" | "unknown";
 export interface ProposalCounts { total: number; selected: number; done: number; failed: number; skipped: number; noop: number; undone: number; undoFailed: number; unknown?: number }

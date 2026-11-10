@@ -37,7 +37,7 @@ pub struct Registry {
 
 pub const TOOL_NAMES: [&str; 7] = ["list_accounts", "list_folders", "search_mail", "server_search", "mail_stats", "get_message", "get_thread"];
 /// Tools added when the user allowed "Assistant may suggest changes".
-pub const PROPOSE_TOOL_NAMES: [&str; 6] = ["propose_move", "propose_archive", "propose_trash", "propose_flag", "propose_create_folder", "propose_rule"];
+pub const PROPOSE_TOOL_NAMES: [&str; 7] = ["propose_move", "propose_archive", "propose_trash", "propose_flag", "propose_create_folder", "propose_rule", "propose_rule_change"];
 /// Tools added (with the proposal tools) when the user allowed "Assistant may suggest changes": they store a draft
 /// the user can open in Compose. They have no recipient parameter for replies and cannot send.
 pub const DRAFT_TOOL_NAMES: [&str; 2] = ["draft_reply", "draft_new"];
@@ -134,12 +134,13 @@ impl Registry {
         self.tools.extend([
             ToolDef {
                 name: "propose_move",
-                description: "Suggest moving messages to a folder. NOTHING is moved until the user approves. Give exactly one of to_folder (a folder reference such as f:3) or to_new_folder (a name; the folder is created on approval).",
+                description: "Suggest moving messages to a folder. NOTHING is moved until the user approves. Give exactly one of to_folder (a folder reference such as f:3) or to_new_folder (a name; the folder is created on approval, at the top level or, with new_folder_parent, inside that existing folder).",
                 risk: Risk::Propose,
                 parameters: json!({"type":"object","properties":{
                     "refs": refs.clone(),
                     "to_folder":{"type":"string","description":"Folder reference such as f:3.","maxLength":16},
                     "to_new_folder":{"type":"string","description":"Name of a new folder: letters, digits, spaces, '-' and '_' only.","maxLength":100},
+                    "new_folder_parent":{"type":"string","description":"Only together with to_new_folder: an existing folder (a reference such as f:3, or its name) to create the new folder inside.","maxLength":100},
                     "reason": reason.clone()
                 },"required":["refs"],"additionalProperties":false}),
             },
@@ -186,12 +187,24 @@ impl Registry {
                 },"required":["account","name","conditions","actions"],"additionalProperties":false}),
             },
             ToolDef {
+                name: "propose_rule_change",
+                description: "Suggest turning an EXISTING mail rule on or off, or discarding it (the rule is taken out of MiraMail; the user can undo this). Use the rule number shown by list_rules. NOTHING changes until the user approves; MiraMail writes the card from the stored rule. A rule that is turned on only handles mail that arrives afterwards.",
+                risk: Risk::Propose,
+                parameters: json!({"type":"object","properties":{
+                    "account":{"type":"string","description":"Account reference such as a:1 (the account the rule belongs to, as listed by list_rules).","maxLength":16},
+                    "rule":{"type":"integer","description":"The rule number shown by list_rules.","minimum":1},
+                    "change":{"type":"string","enum":["enable","disable","discard"],"description":"enable = turn the rule on, disable = turn it off, discard = take the rule out of MiraMail."},
+                    "reason": reason.clone()
+                },"required":["account","rule","change"],"additionalProperties":false}),
+            },
+            ToolDef {
                 name: "propose_create_folder",
-                description: "Suggest creating a new top-level folder. NOTHING happens until the user approves.",
+                description: "Suggest creating a new folder, at the top level or inside an existing folder when parent is given. NOTHING happens until the user approves.",
                 risk: Risk::Propose,
                 parameters: json!({"type":"object","properties":{
                     "account":{"type":"string","description":"Account reference such as a:1.","maxLength":16},
                     "name":{"type":"string","description":"Letters, digits, spaces, '-' and '_' only.","minLength":1,"maxLength":100},
+                    "parent":{"type":"string","description":"Optional existing folder to create the new folder inside: a reference such as f:3, or its name. Omit for the top level.","maxLength":100},
                     "reason": reason
                 },"required":["account","name"],"additionalProperties":false}),
             },

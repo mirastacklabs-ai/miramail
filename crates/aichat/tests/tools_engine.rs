@@ -864,8 +864,8 @@ mod p2 {
         let e = env(&m, Dialect::OpenAiChat);
         turn(&e, Some(setup_suggest(&host, &actions, &["INBOX"])), "hi").await.0.unwrap();
         let names = wire_tool_names(&m);
-        assert_eq!(names.len(), 14);
-        for n in ["propose_move", "propose_archive", "propose_trash", "propose_flag", "propose_create_folder"] {
+        assert_eq!(names.len(), 15);
+        for n in ["propose_move", "propose_archive", "propose_trash", "propose_flag", "propose_create_folder", "propose_rule_change"] {
             assert!(names.contains(&n.to_string()), "{n}");
         }
         assert!(names.iter().all(|n| !["send", "delete", "expunge", "forward", "reply", "draft"].iter().any(|bad| n.contains(bad))), "{names:?}");
@@ -1265,7 +1265,7 @@ mod p3 {
         s.actions = Some(f.actions.clone());
         turn(&e, Some(s), "hi").await.0.unwrap();
         let names = offered(&m, d);
-        assert_eq!(names.len(), 14);
+        assert_eq!(names.len(), 15);
         assert!(DRAFT_TOOL_NAMES.iter().all(|n| !names.contains(&n.to_string())));
         assert!(!bodies(&m)[0]["messages"][0]["content"].as_str().unwrap().contains("draft_reply"));
         // draft host installed: the two draft tools appear, nothing else changes

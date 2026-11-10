@@ -245,4 +245,32 @@ impl MailActionHost for FakeActions {
             Ok(true)
         })
     }
+
+    fn child_folder_name(&self, account: &str, parent: &str, leaf: &str) -> Result<String, String> {
+        let leaf = validate_folder_name(leaf)?;
+        self.check_parent(account, parent)?;
+        let s = self.st.lock().unwrap();
+        if !s.validity.contains_key(&(account.to_string(), parent.to_string())) {
+            return Err("The parent folder no longer exists.".into());
+        }
+        Ok(format!("{parent}/{leaf}"))
+    }
+
+    fn account_folders(&self, account: &str) -> Result<Vec<String>, String> {
+        let mut v: Vec<String> = self.st.lock().unwrap().validity.keys().filter(|(a, _)| a == account).map(|(_, f)| f.clone()).collect();
+        v.sort();
+        Ok(v)
+    }
+
+    fn check_parent(&self, _account: &str, parent: &str) -> Result<(), String> {
+        // The fake has no role field: the usual special-folder names stand in for the roles.
+        if ["trash", "junk", "spam", "sent", "drafts"].iter().any(|r| parent.eq_ignore_ascii_case(r)) {
+            return Err("A new folder can't be created inside a special folder such as Trash, Junk, Sent or Drafts.".into());
+        }
+        Ok(())
+    }
+
+    fn create_folder_named(&self, account: &str, full_name: &str) -> BoxFut<'_, Result<bool, String>> {
+        self.create_folder(account, full_name)
+    }
 }

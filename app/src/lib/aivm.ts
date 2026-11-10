@@ -185,7 +185,7 @@ export function alignEgress(messages: AiMessage[], rows: EgressRow[]): Map<strin
 }
 
 const TOOL_VERB: Record<string, string> = {
-  propose_move: "Suggested moving", propose_archive: "Suggested archiving", propose_trash: "Suggested moving to Trash", propose_flag: "Suggested flag change", propose_create_folder: "Suggested new folder",
+  propose_move: "Suggested moving", propose_archive: "Suggested archiving", propose_trash: "Suggested moving to Trash", propose_flag: "Suggested flag change", propose_create_folder: "Suggested new folder", propose_rule_change: "Suggested rule change",
   list_accounts: "Listed accounts", list_rules: "Read mail rules", list_folders: "Listed folders", search_mail: "Searched mail", server_search: "Searched the mail server",
   draft_reply: "Drafted a reply", draft_new: "Drafted a new message",
   mail_stats: "Checked mail statistics", get_message: "Read message", get_thread: "Read conversation",
@@ -299,6 +299,8 @@ export function purgeLines(report: unknown): string[] {
 // ---- proposals (P2) ----
 
 export const EVENT_KINDS = ["event_create", "event_change", "event_cancel", "invite_response"] as const;
+/** Cards with no message rows (Approve sends `selected: []`): a new folder, a change to an existing rule. */
+export const isRowless = (k: string) => k === "create_folder" || k === "rule_change";
 /** Calendar proposals: no message rows, Approve sends `selected: []`. */
 export const isEventKind = (k: string) => (EVENT_KINDS as readonly string[]).includes(k);
 export const eventHeading = (k: string) => k === "event_create" ? "Suggested event" : k === "event_change" ? "Suggested event change" : k === "event_cancel" ? "Suggested cancellation" : "Suggested answer to an invitation";
@@ -330,9 +332,9 @@ export function followUpText(sums: Pick<ProposalSummary, "id" | "state" | "kind"
 }
 
 /** One honest sentence about what happened, from the app's own counts. */
-export function resultText(p: Pick<ProposalSummary, "state" | "kind" | "counts" | "error">): string {
+export function resultText(p: Pick<ProposalSummary, "state" | "kind" | "counts" | "error"> & { title?: string }): string {
   const c = p.counts;
-  if (isEventKind(p.kind)) {
+  if (isEventKind(p.kind) || p.kind === "rule_change") {
     switch (p.state) {
       case "proposed": return "Waiting for your approval. Nothing has been changed.";
       case "approved":
@@ -342,7 +344,7 @@ export function resultText(p: Pick<ProposalSummary, "state" | "kind" | "counts" 
       case "failed": return `Failed: nothing was changed.${p.error ? ` ${p.error}` : ""}`;
       case "rejected": return "Rejected. Nothing was changed.";
       case "expired": return "Expired without a decision. Nothing was changed.";
-      case "undone": return "Undone.";
+      case "undone": return p.kind === "rule_change" && /^Turn on rule/.test(p.title ?? "") ? "Undone. Messages it already moved stay where they are; undo those from the rule's activity." : "Undone.";
     }
   }
   const verb = PAST[p.kind] ?? "changed";
@@ -370,7 +372,7 @@ export function selectedIdx(items: Pick<ProposalItem, "idx" | "selected">[]): nu
 }
 /** Approve needs at least one ticked row (a "create folder" card has no rows). */
 export function canApprove(p: Pick<ProposalSummary, "state" | "kind">, items: Pick<ProposalItem, "selected">[]): boolean {
-  return p.state === "proposed" && (p.kind === "create_folder" || isEventKind(p.kind) || selectedCount(items) > 0);
+  return p.state === "proposed" && (isRowless(p.kind) || isEventKind(p.kind) || selectedCount(items) > 0);
 }
 /** Title for the Approve button with the number that will actually run. */
 export function approveLabel(p: Pick<ProposalSummary, "kind"> & { event?: Pick<EventCard, "notify"> }, items: Pick<ProposalItem, "selected">[]): string {
@@ -378,7 +380,7 @@ export function approveLabel(p: Pick<ProposalSummary, "kind"> & { event?: Pick<E
     if (!p.event?.notify) return "Approve";
     return p.kind === "event_cancel" ? "Approve and send cancellation" : p.kind === "invite_response" ? "Approve and send answer" : "Approve and send invitations";
   }
-  if (p.kind === "create_folder") return "Approve";
+  if (isRowless(p.kind)) return "Approve";
   const n = selectedCount(items);
   return n === items.length ? "Approve" : `Approve ${n}`;
 }

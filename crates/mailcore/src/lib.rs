@@ -15,6 +15,7 @@ pub mod imap;
 pub mod mime;
 pub mod safety;
 pub mod sanitize;
+pub mod sentcopy;
 pub mod search;
 pub mod secrets;
 pub mod sieve;

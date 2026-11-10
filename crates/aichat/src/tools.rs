@@ -427,7 +427,7 @@ impl ToolRuntime {
             "mail_stats" => self.t_stats(args).await,
             "get_message" => self.t_get_message(args).await,
             "get_thread" => self.t_get_thread(args).await,
-            "propose_move" | "propose_archive" | "propose_trash" | "propose_flag" | "propose_create_folder" => self.t_propose(name, args),
+            "propose_move" | "propose_archive" | "propose_trash" | "propose_flag" | "propose_create_folder" | "propose_rule_change" => self.t_propose(name, args),
             "propose_rule" => self.t_propose_rule(args),
             "list_rules" => self.t_list_rules(args),
             "draft_reply" | "draft_new" => self.t_draft(name, args).await,
@@ -715,9 +715,14 @@ impl ToolRuntime {
             "propose_archive" => Kind::Archive,
             "propose_trash" => Kind::Trash,
             "propose_flag" => Kind::Flag,
+            "propose_rule_change" => Kind::RuleChange,
             _ => Kind::CreateFolder,
         };
-        let planned = if kind == Kind::CreateFolder { self.plan_create_folder(host.as_ref(), args)? } else { self.plan_messages(host.as_ref(), kind, args)? };
+        let planned = match kind {
+            Kind::CreateFolder => self.plan_create_folder(host.as_ref(), args)?,
+            Kind::RuleChange => self.plan_rule_change(host.as_ref(), args)?,
+            _ => self.plan_messages(host.as_ref(), kind, args)?,
+        };
         let np = NewProposal { conv_id: self.conv_id, kind, params: planned.params.clone(), title: planned.title.clone(), reason, warnings: planned.warnings.clone(), items: planned.items.clone() };
         let now = crate::engine::system_clock()();
         let id = lock(&self.store).create_proposal(&np, now).map_err(|_| "MiraMail could not save the suggestion.".to_string())?;
@@ -879,14 +884,82 @@ impl ToolRuntime {
         Ok((msg, "draft ready for review".to_string()))
     }
 
+    /// Turn an existing rule on/off or discard it. The rule must exist and belong to an account of this
+    /// conversation's scope; the card is written from the STORED rule (name + the app's own description).
+    fn plan_rule_change(&mut self, host: &dyn MailActionHost, args: &Value) -> Res<proposals::Planned> {
+        use crate::rules;
+        let account = self.resolve_account(args["account"].as_str().unwrap_or_default())?;
+        let id = args.get("rule").and_then(Value::as_i64).ok_or_else(|| "rule must be the number shown by list_rules.".to_string())?;
+        let change = args.get("change").and_then(Value::as_str).unwrap_or_default();
+        if !matches!(change, "enable" | "disable" | "discard") {
+            return Err("change must be one of: enable, disable, discard.".into());
+        }
+        let not_found = "That rule does not exist for this account. Call list_rules to see the current rules.";
+        let rule = lock(&self.store).get_rule(id).map_err(|_| "MiraMail could not read the rules.".to_string())?.filter(|r| r.account == account).ok_or_else(|| not_found.to_string())?;
+        match (change, rule.enabled) {
+            ("enable", true) => return Err("That rule is already on. Nothing to suggest.".into()),
+            ("disable", false) => return Err("That rule is already off. Nothing to suggest.".into()),
+            ("enable", false) if rule.spec.is_none() => return Err("That rule is damaged and cannot be turned on; the user has to edit and save it first.".into()),
+            _ => {}
+        }
+        if let Some(spec) = &rule.spec {
+            proposals::check_rule_folders(host, &account, spec, change, &|a, f| self.in_scope(a, f))?;
+        }
+        let mut warnings = Vec::new();
+        if let Some(spec) = &rule.spec {
+            warnings.push(format!("What the rule does: {}", clean_line(&rules::describe(spec), 300)));
+            if change == "enable" {
+                warnings.push("only mail that arrives after it is turned on is handled; existing mail is not touched".to_string());
+            }
+        }
+        if change == "discard" {
+            warnings.push("the rule is taken out of MiraMail; Undo puts it back (with a new number)".to_string());
+        }
+        let params = Params {
+            account: Some(account.clone()),
+            rule_change: Some(proposals::RuleChangeParams { rule_id: rule.id, account, change: change.to_string(), name: clean_line(&rule.name, 100), fingerprint: rules::rule_fingerprint(&rule) }),
+            ..Params::default()
+        };
+        let mut planned = proposals::build_plan(Kind::RuleChange, params, vec![], 0, 0)?;
+        planned.warnings.extend(warnings);
+        Ok(planned)
+    }
+
     fn plan_create_folder(&mut self, host: &dyn MailActionHost, args: &Value) -> Res<proposals::Planned> {
         let account = self.resolve_account(args["account"].as_str().unwrap_or_default())?;
         let name = proposals::validate_folder_name(args["name"].as_str().unwrap_or_default())?;
-        if host.find_folder(&account, &name)?.is_some() {
+        let parent = match args.get("parent").and_then(Value::as_str).map(str::trim).filter(|p| !p.is_empty()) {
+            Some(raw) => Some(self.resolve_parent(host, &account, raw)?),
+            None => None,
+        };
+        let full = match parent.as_deref() {
+            Some(p) => host.child_folder_name(&account, p, &name)?,
+            None => name.clone(),
+        };
+        if host.find_folder(&account, &full)?.is_some() {
             return Err("A folder with that name already exists.".into());
         }
-        let params = Params { account: Some(account), new_folder: Some(name), ..Params::default() };
+        let params = Params { account: Some(account), new_folder: Some(name), new_folder_parent: parent, ..Params::default() };
         proposals::build_plan(Kind::CreateFolder, params, vec![], 0, 0)
+    }
+
+    /// The parent of a new folder: a folder reference (`f:3`) or the name of an existing folder. It must be
+    /// in this conversation's scope (fail closed) and belong to `account`. Returns the server's spelling.
+    fn resolve_parent(&self, host: &dyn MailActionHost, account: &str, raw: &str) -> Res<String> {
+        if raw.len() <= 16 && raw.starts_with("f:") {
+            let s = self.resolve_folder(raw)?;
+            if s.account != account {
+                return Err("The parent folder belongs to a different account.".into());
+            }
+            host.check_parent(account, &s.folder)?;
+            return Ok(s.folder);
+        }
+        let existing = host.find_folder(account, raw)?.ok_or_else(|| "The parent folder does not exist. Use an existing folder as the parent.".to_string())?;
+        if !self.in_scope(account, &existing) {
+            return Err(format!("The folder \"{existing}\" is outside the folders the user allowed for this conversation."));
+        }
+        host.check_parent(account, &existing)?;
+        Ok(existing)
     }
 
     /// Resolve references (scope + UIDVALIDITY rechecked) and look the messages up; the card is built
@@ -928,14 +1001,26 @@ impl ToolRuntime {
             Kind::Move => {
                 let to_folder = args.get("to_folder").and_then(Value::as_str);
                 let to_new = args.get("to_new_folder").and_then(Value::as_str);
+                let new_parent = args.get("new_folder_parent").and_then(Value::as_str).map(str::trim).filter(|p| !p.is_empty());
+                if new_parent.is_some() && to_new.is_none() {
+                    return Err("new_folder_parent can only be used together with to_new_folder.".into());
+                }
                 match (to_folder, to_new) {
                     (Some(f), None) => {
                         let s = self.resolve_folder(f)?;
                         dest = Some((s.account, s.folder));
                     }
                     (None, Some(n)) => {
-                        let name = proposals::validate_folder_name(n)?;
+                        let leaf = proposals::validate_folder_name(n)?;
                         let account = resolved[0].0.account.clone();
+                        let parent = match new_parent {
+                            Some(raw) => Some(self.resolve_parent(host, &account, raw)?),
+                            None => None,
+                        };
+                        let name = match parent.as_deref() {
+                            Some(p) => host.child_folder_name(&account, p, &leaf)?,
+                            None => leaf,
+                        };
                         // Folder names are case-insensitive for our purposes: reuse the server's spelling, and
                         // treat a name that is an existing folder like `to_folder` (it must be in scope).
                         match host.find_folder(&account, &name)? {
@@ -947,6 +1032,7 @@ impl ToolRuntime {
                             }
                             None => {
                                 params.create_dest = true;
+                                params.new_folder_parent = parent;
                                 dest = Some((account, name));
                             }
                         }
@@ -1129,6 +1215,7 @@ pub fn label_for(name: &str, args: &Value) -> String {
             format!("{n} message{}", if n == 1 { "" } else { "s" })
         }
         "propose_create_folder" | "propose_rule" => s("name"),
+        "propose_rule_change" => format!("{} rule {}", s("change"), args.get("rule").and_then(Value::as_i64).unwrap_or(0)),
         "draft_reply" => s("ref"),
         "draft_new" => s("subject"),
         "list_calendars" => String::new(),

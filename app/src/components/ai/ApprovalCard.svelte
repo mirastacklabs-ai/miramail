@@ -2,7 +2,7 @@
   // One suggested change. Title, count and warnings are written by MiraMail from the messages it found;
   // the model's own words appear only as "AI's reason". Nothing happens until Approve is pressed.
   import { ai } from "../../lib/ai.svelte";
-  import { approveLabel, canApprove, eventHeading, isEventKind, isPending, isRunning, resultText, warningTone } from "../../lib/aivm";
+  import { approveLabel, canApprove, eventHeading, isEventKind, isPending, isRowless, isRunning, resultText, warningTone } from "../../lib/aivm";
   import BulkPreviewTable from "./BulkPreviewTable.svelte";
 
   let { id }: { id: number } = $props();
@@ -45,7 +45,7 @@
           </tbody>
         </table>
       {/if}
-    {:else if !isEv && p.kind !== "create_folder"}
+    {:else if !isEv && !isRowless(p.kind)}
       <p class="count">{p.counts.total} message{p.counts.total === 1 ? "" : "s"}{#if isPending(p.state) && d} · {items.filter((i) => i.selected).length} selected{/if}</p>
     {/if}
     {#if (isEv ? otherWarns : p.warnings).length}
@@ -56,7 +56,7 @@
     {#if p.reason}
       <p class="reason"><span class="label">AI's reason:</span> <span class="selectable">{p.reason}</span></p>
     {/if}
-    {#if !isEv && p.kind !== "create_folder"}
+    {#if !isEv && !isRowless(p.kind)}
       <button class="btn ghost sm" aria-expanded={open} onclick={toggle}>{open ? "Hide" : "Show"} messages</button>
       {#if open}
         {#if d}<BulkPreviewTable proposalId={id} {items} editable={isPending(p.state) && !busy} />

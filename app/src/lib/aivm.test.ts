@@ -148,6 +148,11 @@ test("result text is built from the app's counts and is honest", () => {
   assert.match(r("done", "move", { done: 5, undoFailed: 2 }), /2 could not be put back/);
   assert.equal(r("done", "create_folder", { done: 1 }), "Folder created.");
   assert.match(r("executing", "move", { done: 10, selected: 40 }), /10 of 40/);
+  assert.equal(r("done", "rule_change", {}), "Done.");
+  assert.equal(r("undone", "rule_change", {}), "Undone.");
+  assert.match(resultText({ state: "undone", kind: "rule_change", counts: {} as never, error: "", title: "Turn on rule \u201cX\u201d" }), /stay where they are/);
+  assert.equal(resultText({ state: "undone", kind: "rule_change", counts: {} as never, error: "", title: "Turn off rule \u201cX\u201d" }), "Undone.");
+  assert.match(r("failed", "rule_change", {}, "The rule changed since this suggestion was made."), /rule changed/);
 });
 
 test("approve needs a ticked row and says how many will run", () => {
@@ -161,6 +166,8 @@ test("approve needs a ticked row and says how many will run", () => {
   assert.ok(!canApprove({ state: "proposed", kind: "move" }, [{ selected: false }]));
   assert.ok(!canApprove({ state: "done", kind: "move" }, items), "only a waiting suggestion can be approved");
   assert.ok(canApprove({ state: "proposed", kind: "create_folder" }, []));
+  assert.ok(canApprove({ state: "proposed", kind: "rule_change" }, []));
+  assert.equal(approveLabel({ kind: "rule_change" }, []), "Approve");
   assert.ok(isPending("proposed") && !isPending("approved") && isRunning("executing") && !isRunning("done"));
 });
 

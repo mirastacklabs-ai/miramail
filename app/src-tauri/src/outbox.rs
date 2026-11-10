@@ -539,6 +539,9 @@ pub struct Outbox {
     /// Compose ids already submitted (a second submit for the same compose pane is rejected: double click, key repeat,
     /// a pane that moved windows mid-send). Bounded; oldest forgotten first.
     submitted: Mutex<std::collections::VecDeque<String>>,
+    /// Per account, what we saw last time: `true` the server filed its own copy in Sent, `false` it did not.
+    /// Memory only; it just picks how long to wait before appending our own copy.
+    sent_saves: Mutex<std::collections::HashMap<String, bool>>,
 }
 
 const MAX_SUBMITTED: usize = 512;
@@ -568,7 +571,7 @@ impl Outbox {
 
 impl Outbox {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
-        Ok(Outbox { store: OutboxStore::open(path)?, wake: Notify::new(), submitted: Mutex::new(Default::default()) })
+        Ok(Outbox { store: OutboxStore::open(path)?, wake: Notify::new(), submitted: Mutex::new(Default::default()), sent_saves: Mutex::new(Default::default()) })
     }
 }
 
@@ -644,13 +647,39 @@ async fn deliver(app: &AppHandle, job: &Job) -> Result<Vec<u8>, (String, bool)> 
     mailcore::smtp::send(&cfg, &password, &msg).await.map_err(|e| (err(&e), e.outcome_unknown()))
 }
 
-/// Best effort: the mail is sent, a missing Sent copy must not turn into an error.
-async fn save_to_sent(app: &AppHandle, account: &str, raw: &[u8]) {
+/// Best effort: the mail is sent, a missing Sent copy must not turn into an error. Servers that file SMTP
+/// submissions into Sent themselves would hold two copies if we always appended, so first look for the
+/// message's Message-ID in Sent (see `mailcore::sentcopy`); any doubt falls back to appending.
+pub async fn save_to_sent(app: &AppHandle, account: &str, raw: &[u8]) {
     let state = app.state::<AppState>();
     let folders = state.storage.list_folders(account).unwrap_or_default();
-    if let Some(sent) = find_role(&folders, FolderRole::Sent) {
+    let Some(sent) = find_role(&folders, FolderRole::Sent) else { return };
+    let mid = mailcore::draftsync::extract_message_id(raw);
+    let known = app.state::<Outbox>().sent_saves.lock().ok().and_then(|m| m.get(account).copied());
+    let decision = mailcore::sentcopy::decide(
+        mid.is_some(),
+        known,
+        || async {
+            // A fresh connection per check: its SELECT sees mail filed since the last one, and the account lock
+            // is not held while we wait.
+            let id = mid.as_deref().unwrap_or_default();
+            let attempt = async {
+                let mut conn = state.connect(account).await.map_err(mailcore::Error::Invalid)?;
+                let r = mailcore::sentcopy::folder_has_message_id(&mut conn.client, &sent.name, id).await;
+                conn.close().await;
+                r
+            };
+            tokio::time::timeout(std::time::Duration::from_secs(25), attempt).await.unwrap_or(Err(mailcore::Error::Timeout("sent check")))
+        },
+        tokio::time::sleep,
+    )
+    .await;
+    if let (Some(l), Ok(mut m)) = (decision.learned, app.state::<Outbox>().sent_saves.lock()) {
+        m.insert(account.to_string(), l);
+    }
+    if decision.append {
         if let Ok(mut conn) = state.connect(account).await {
-            let _ = conn.client.append(&sent.name, raw, true).await;
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(60), conn.client.append(&sent.name, raw, true)).await;
             conn.close().await;
         }
     }

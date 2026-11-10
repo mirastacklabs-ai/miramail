@@ -453,6 +453,52 @@ impl MailActionHost for AppMailHost {
         })
     }
 
+    fn child_folder_name(&self, account: &str, parent: &str, leaf: &str) -> Result<String, String> {
+        let folders = self.storage.list_folders(account).map_err(db_err)?;
+        mailcore::foldermgmt::child_full_name(&folders, Some(parent), leaf)
+    }
+
+    fn account_folders(&self, account: &str) -> Result<Vec<String>, String> {
+        Ok(self.storage.list_folders(account).map_err(db_err)?.into_iter().map(|f| f.name).collect())
+    }
+
+    fn check_parent(&self, account: &str, parent: &str) -> Result<(), String> {
+        let folders = self.storage.list_folders(account).map_err(db_err)?;
+        mailcore::foldermgmt::parent_allows_children(&folders, parent)
+    }
+
+    fn create_folder_named(&self, account: &str, full_name: &str) -> BoxFut<'_, Result<bool, String>> {
+        let (account, full) = (account.to_string(), full_name.to_string());
+        Box::pin(async move {
+            let mut conn = self.connect_for(&account).await?;
+            let r = tokio::time::timeout(Duration::from_secs(60), async {
+                let existing = conn.client.list_folders().await?;
+                if existing.iter().any(|f| f.name.eq_ignore_ascii_case(&full)) {
+                    return Ok::<bool, mailcore::Error>(false);
+                }
+                conn.client.create_folder_named(&full).await?;
+                Ok(true)
+            })
+            .await;
+            let created = match r {
+                Err(_) => {
+                    conn.close().await;
+                    return Err("The mail server did not answer in time.".into());
+                }
+                Ok(Err(e)) => {
+                    conn.close().await;
+                    return Err(net_err(e));
+                }
+                Ok(Ok(c)) => c,
+            };
+            if let Ok(Ok(list)) = tokio::time::timeout(Duration::from_secs(30), conn.client.list_folders()).await {
+                let _ = self.storage.replace_folders(&account, &list);
+            }
+            conn.close().await;
+            Ok(created)
+        })
+    }
+
     fn create_folder(&self, account: &str, name: &str) -> BoxFut<'_, Result<bool, String>> {
         let (account, name) = (account.to_string(), name.to_string());
         Box::pin(async move {

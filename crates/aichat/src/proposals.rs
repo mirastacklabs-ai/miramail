@@ -48,6 +48,8 @@ pub enum Kind {
     Trash,
     Flag,
     CreateFolder,
+    /// Turn an existing mail rule on or off, or discard it (executed by the mail [`Executor`]; no message rows).
+    RuleChange,
     /// Calendar (executed by [`crate::calexec::CalExecutor`], never by the mail [`Executor`]).
     EventCreate,
     EventChange,
@@ -68,6 +70,7 @@ impl Kind {
             Kind::Trash => "trash",
             Kind::Flag => "flag",
             Kind::CreateFolder => "create_folder",
+            Kind::RuleChange => "rule_change",
             Kind::EventCreate => "event_create",
             Kind::EventChange => "event_change",
             Kind::EventCancel => "event_cancel",
@@ -81,6 +84,7 @@ impl Kind {
             "trash" => Kind::Trash,
             "flag" => Kind::Flag,
             "create_folder" => Kind::CreateFolder,
+            "rule_change" => Kind::RuleChange,
             "event_create" => Kind::EventCreate,
             "event_change" => Kind::EventChange,
             "event_cancel" => Kind::EventCancel,
@@ -190,9 +194,81 @@ pub struct Params {
     pub account: Option<String>,
     #[serde(default)]
     pub new_folder: Option<String>,
+    /// CreateFolder / Move into a new folder: the existing parent folder (full server name) the new folder
+    /// goes inside. `None` = top level. For CreateFolder `new_folder` stays the leaf; for Move `dest_folder` is the FULL name.
+    #[serde(default)]
+    pub new_folder_parent: Option<String>,
     /// Calendar kinds: what approval does.
     #[serde(default)]
     pub cal: Option<crate::cal::CalParams>,
+    /// RuleChange: which rule and what to do with it.
+    #[serde(default)]
+    pub rule_change: Option<RuleChangeParams>,
+}
+
+/// A suggestion to change an existing rule. The name and fingerprint are read from the stored rule by the app
+/// when the card is made (never model text); approval refuses when the rule no longer matches the fingerprint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuleChangeParams {
+    pub rule_id: i64,
+    pub account: String,
+    /// `enable` | `disable` | `discard`
+    pub change: String,
+    pub name: String,
+    pub fingerprint: String,
+}
+
+/// Every folder an existing rule touches must be inside the conversation's allowed folders (fail closed).
+///
+/// * Folders it watches: all of the account's folders its folder conditions match (`could_apply`); with no
+///   folder condition it applies to the Inbox only, so the Inbox must be allowed.
+/// * A `moveTo` destination, in the server's spelling.
+/// * `archive` / `trash` actions need nothing extra: `propose_archive` / `propose_trash` check only the SOURCE
+///   folders against the scope (the role folder they move into is not scope-checked), and this mirrors that.
+/// * A folder the rule names that no longer exists (an `equals` folder condition or a `moveTo`) refuses an
+///   `enable`; for `disable` / `discard` it is skipped so stale rules can still be turned off or removed, as long as
+///   the folders that DO exist are allowed.
+pub fn check_rule_folders(host: &dyn MailActionHost, account: &str, spec: &crate::rules::RuleSpec, change: &str, in_scope: &dyn Fn(&str, &str) -> bool) -> Result<(), String> {
+    use crate::rules::{Action, Field, Op};
+    let outside = |f: &str| format!("This rule uses the folder {}, which is outside the folders the user allowed for this conversation.", clean_line(f, 80));
+    let gone = |f: &str| format!("This rule uses the folder {}, which no longer exists, so it can't be turned on.", clean_line(f, 80));
+    let enabling = change == "enable";
+    let folders = host.account_folders(account)?;
+    let has_folder_cond = spec.conditions.iter().any(|c| c.field == Field::Folder);
+    if has_folder_cond {
+        for f in folders.iter().filter(|f| crate::rules::could_apply(spec, f)) {
+            if !in_scope(account, f) {
+                return Err(outside(f));
+            }
+        }
+        for c in spec.conditions.iter().filter(|c| c.field == Field::Folder && c.op == Op::Equals) {
+            if !folders.iter().any(|f| f.eq_ignore_ascii_case(&c.value)) && enabling {
+                return Err(gone(&c.value));
+            }
+        }
+    } else {
+        let inbox = folders.iter().find(|f| f.eq_ignore_ascii_case("INBOX")).cloned().unwrap_or_else(|| "INBOX".to_string());
+        if !in_scope(account, &inbox) {
+            return Err(outside(&inbox));
+        }
+    }
+    for a in &spec.actions {
+        if let Action::MoveTo { folder } = a {
+            match host.find_folder(account, folder)? {
+                Some(real) if !in_scope(account, &real) => return Err(outside(&real)),
+                Some(_) => {}
+                None if enabling => return Err(gone(folder)),
+                None => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What the app does when a rule is turned on: start its cursors at "now" so only mail arriving from here on is
+/// processed. The SAME code the Rules screen runs (`Automation::set_rule_enabled`).
+pub trait RuleHook: Send + Sync {
+    fn baseline(&self, rule_id: i64) -> Result<(), String>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -441,7 +517,20 @@ pub fn title_for(kind: Kind, params: &Params, n: usize, dest_label: &str) -> Str
             Some(FlagOp::Flagged) => format!("Flag {}", msgs(n)),
             Some(FlagOp::Unflagged) | None => format!("Remove the flag from {}", msgs(n)),
         },
-        Kind::CreateFolder => format!("Create folder \"{}\"", clean_line(params.new_folder.as_deref().unwrap_or(""), 80)),
+        Kind::RuleChange => {
+            let (change, name) = params.rule_change.as_ref().map_or(("", ""), |r| (r.change.as_str(), r.name.as_str()));
+            let name = clean_line(name, 80);
+            match change {
+                "enable" => format!("Turn on rule \u{201c}{name}\u{201d}"),
+                "disable" => format!("Turn off rule \u{201c}{name}\u{201d}"),
+                "discard" => format!("Remove rule \u{201c}{name}\u{201d}"),
+                _ => format!("Change rule \u{201c}{name}\u{201d}"),
+            }
+        }
+        Kind::CreateFolder => match params.new_folder_parent.as_deref() {
+            Some(p) => format!("Create folder \"{}\" inside \"{}\"", clean_line(params.new_folder.as_deref().unwrap_or(""), 80), clean_line(p, 80)),
+            None => format!("Create folder \"{}\"", clean_line(params.new_folder.as_deref().unwrap_or(""), 80)),
+        },
         // Calendar cards are titled by the planner in tools::cal (it has the formatted times).
         Kind::EventCreate | Kind::EventChange | Kind::EventCancel | Kind::InviteResponse => String::new(),
     }
@@ -466,7 +555,10 @@ pub fn warnings_for(kind: Kind, params: &Params, items: &[NewItem], left_out: us
         }
     }
     if kind == Kind::Move && params.create_dest {
-        w.push(format!("creates the new folder \"{dest_label}\""));
+        match params.new_folder_parent.as_deref() {
+            Some(p) => w.push(format!("creates the new folder \"{dest_label}\" inside \"{}\"", clean_line(p, 80))),
+            None => w.push(format!("creates the new folder \"{dest_label}\"")),
+        }
     }
     if kind == Kind::Trash {
         w.push("goes to Trash, not deleted for good; you can restore it from there".to_string());
@@ -494,7 +586,7 @@ pub struct Planned {
 
 /// Compose the card from RESOLVED messages. Nothing here reads model-provided text.
 pub fn build_plan(kind: Kind, params: Params, items: Vec<NewItem>, left_out: usize, already_there: usize) -> Result<Planned, String> {
-    if kind != Kind::CreateFolder && items.is_empty() {
+    if !matches!(kind, Kind::CreateFolder | Kind::RuleChange) && items.is_empty() {
         return Err("None of those messages can be changed (not found, outside the allowed folders, or already in place).".into());
     }
     if items.len() > MAX_ITEMS {
@@ -809,6 +901,16 @@ pub trait MailActionHost: Send + Sync {
     fn flag_batch(&self, req: FlagReq) -> BoxFut<'_, Result<FlagRes, String>>;
     /// `Ok(true)` created, `Ok(false)` already existed.
     fn create_folder(&self, account: &str, name: &str) -> BoxFut<'_, Result<bool, String>>;
+    /// Full server name of a new folder `leaf` inside the existing folder `parent` (the parent's own
+    /// delimiter; special-folder names rejected). Does NOT fail when the name is taken.
+    fn child_folder_name(&self, account: &str, parent: &str, leaf: &str) -> Result<String, String>;
+    /// Names of the account's folders as cached locally (used to work out which folders a rule touches).
+    fn account_folders(&self, account: &str) -> Result<Vec<String>, String>;
+    /// `Ok` when `parent` exists and may hold a new subfolder (not Trash/Junk/Sent/Drafts, server has a hierarchy delimiter).
+    fn check_parent(&self, account: &str, parent: &str) -> Result<(), String>;
+    /// Create the folder with this exact full name (built by [`MailActionHost::child_folder_name`]).
+    /// `Ok(true)` created, `Ok(false)` already existed.
+    fn create_folder_named(&self, account: &str, full_name: &str) -> BoxFut<'_, Result<bool, String>>;
 }
 
 // ------------------------------------------------------------------------------------------
@@ -886,13 +988,20 @@ pub struct Executor {
     host: Arc<dyn MailActionHost>,
     clock: Clock,
     busy: Busy,
+    rules: Option<Arc<dyn RuleHook>>,
 }
 
 const NOT_ATTEMPTED: &str = "Not attempted: an earlier step failed.";
 
 impl Executor {
     pub fn new(store: Arc<Mutex<Store>>, host: Arc<dyn MailActionHost>, clock: Clock, busy: Busy) -> Executor {
-        Executor { store, host, clock, busy }
+        Executor { store, host, clock, busy, rules: None }
+    }
+
+    /// Install the rule-enable hook (needed to turn a rule on, also by an Undo).
+    pub fn with_rule_hook(mut self, hook: Arc<dyn RuleHook>) -> Executor {
+        self.rules = Some(hook);
+        self
     }
 
     /// Claim the proposal. A caller that must read the conversation's consent for [`Executor::approve_claimed`]
@@ -941,7 +1050,7 @@ impl Executor {
                 st.transition_proposal(id, State::Proposed, State::Expired, now, "")?;
                 return Err(ProposalError::Expired);
             }
-            if p.kind != Kind::CreateFolder {
+            if !matches!(p.kind, Kind::CreateFolder | Kind::RuleChange) {
                 st.set_selection(id, selected).map_err(db)?;
                 if st.proposal_counts(id).map_err(db)?.selected == 0 {
                     return Err(ProposalError::NothingSelected);
@@ -952,7 +1061,11 @@ impl Executor {
             p
         };
         progress(id);
-        let run = if p.kind == Kind::CreateFolder { self.run_create_folder(&p, scopes).await } else { self.run_items(&p, scopes, progress).await };
+        let run = match p.kind {
+            Kind::CreateFolder => self.run_create_folder(&p, scopes).await,
+            Kind::RuleChange => self.run_rule_change(&p, scopes),
+            _ => self.run_items(&p, scopes, progress).await,
+        };
         let state = if run.fatal.is_some() && run.ok + run.unverified == 0 {
             State::Failed
         } else if run.ok > 0 && run.failed + run.skipped + run.unverified == 0 && run.fatal.is_none() {
@@ -970,6 +1083,159 @@ impl Executor {
         let mut affected: Vec<(String, String)> = run.affected.into_iter().collect();
         affected.sort();
         Ok(ExecReport { state, ok: run.ok, failed: run.failed, skipped: run.skipped, noop: run.noop, unverified: run.unverified, affected, folders_changed: run.folders_changed })
+    }
+
+    /// Turn a rule on/off or discard it, after re-checking (at execution time) that its account is still in the
+    /// conversation's scope and that the rule is still exactly the one the card described.
+    fn run_rule_change(&self, p: &Proposal, scopes: &[Scope]) -> Run {
+        let mut run = Run::default();
+        let Some(rc) = p.params.rule_change.clone() else {
+            run.fatal = Some("The suggestion is incomplete.".into());
+            return run;
+        };
+        if !scopes.iter().any(|s| s.account == rc.account) {
+            run.fatal = Some("That account is outside the folders allowed for this conversation.".into());
+            run.skipped = 1;
+            return run;
+        }
+        let now = (self.clock)();
+        let rule = match lock(&self.store).get_rule(rc.rule_id) {
+            Ok(Some(r)) if r.account == rc.account => r,
+            Ok(_) => {
+                run.fatal = Some("That rule no longer exists.".into());
+                run.failed = 1;
+                return run;
+            }
+            Err(_) => {
+                run.fatal = Some("MiraMail couldn't read the rule.".into());
+                run.failed = 1;
+                return run;
+            }
+        };
+        if crate::rules::rule_fingerprint(&rule) != rc.fingerprint {
+            run.fatal = Some("The rule changed since this suggestion was made. Nothing was changed; ask again.".into());
+            run.failed = 1;
+            return run;
+        }
+        // The folders the rule touches must still be inside the (re-read) scope.
+        if let Some(spec) = &rule.spec {
+            let in_scope = |a: &str, f: &str| scopes.iter().any(|s| s.account == a && s.folder == f);
+            if let Err(e) = check_rule_folders(self.host.as_ref(), &rule.account, spec, &rc.change, &in_scope) {
+                run.fatal = Some(e);
+                run.skipped = 1;
+                return run;
+            }
+        }
+        let mut row = LogRow::new(p.id, -1, &format!("rule_{}", rc.change), &rc.account);
+        row.src_folder = clean_line(&rule.name, 100);
+        row.src_uid = u32::try_from(rule.id).ok();
+        row.flag_old = Some(rule.enabled);
+        match rc.change.as_str() {
+            "enable" | "disable" => {
+                let want = rc.change == "enable";
+                if rule.enabled == want {
+                    run.noop = 1;
+                    return run;
+                }
+                if let Err(e) = self.apply_enabled(&rule, want, now) {
+                    run.fatal = Some(e);
+                    run.failed = 1;
+                    return run;
+                }
+                row.flag_new = Some(want);
+                row.message_id = lock(&self.store).get_rule(rule.id).ok().flatten().map(|r| crate::rules::rule_fingerprint(&r));
+            }
+            "discard" => {
+                row.dest_folder = rule_snapshot(&rule);
+                row.flag_new = None;
+                match lock(&self.store).delete_rule_matching(&rule) {
+                    Ok(true) => {}
+                    _ => {
+                        run.fatal = Some("The rule changed while this was being applied. Nothing was changed.".into());
+                        run.failed = 1;
+                        return run;
+                    }
+                }
+            }
+            _ => {
+                run.fatal = Some("The suggestion is incomplete.".into());
+                run.failed = 1;
+                return run;
+            }
+        }
+        let _ = lock(&self.store).add_log(&row, now);
+        run.ok = 1;
+        run
+    }
+
+    /// Switch a rule on or off the way the Rules screen does: on = enabled flag + cursors re-based to "now".
+    fn apply_enabled(&self, rule: &crate::rules::Rule, want: bool, now: i64) -> Result<(), String> {
+        if want {
+            if rule.spec.is_none() {
+                return Err("This rule is damaged. It has to be edited and saved first.".into());
+            }
+            let Some(hook) = &self.rules else { return Err("Turning a rule on isn't available right now.".into()) };
+            // Start the cursors at "now" BEFORE the rule is switched on, so it never runs without them.
+            hook.baseline(rule.id)?;
+        }
+        match lock(&self.store).set_rule_enabled_matching(rule, want, now) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err("The rule changed while this was being applied. Nothing was changed.".into()),
+            Err(_) => Err("MiraMail couldn't save the rule.".to_string()),
+        }
+    }
+
+    /// Reverse one `rule_*` log row. Returns a short note for the log on success.
+    fn undo_rule_row(&self, r: &LogRow) -> Result<String, String> {
+        let now = (self.clock)();
+        let id = r.src_uid.map(i64::from).ok_or_else(|| "The rule's id was not recorded.".to_string())?;
+        match r.op.as_str() {
+            "rule_enable" | "rule_disable" => {
+                let rule = lock(&self.store).get_rule(id).map_err(|_| "MiraMail couldn't read the rule.".to_string())?.ok_or_else(|| "The rule no longer exists.".to_string())?;
+                let want = r.op == "rule_disable";
+                if rule.enabled == want {
+                    return Ok("The rule was already in that state.".into());
+                }
+                if r.message_id.as_deref().is_some_and(|f| f != crate::rules::rule_fingerprint(&rule)) {
+                    return Err("The rule was changed since; Undo left it alone.".into());
+                }
+                self.apply_enabled(&rule, want, now)?;
+                Ok(String::new())
+            }
+            "rule_discard" => {
+                let snap: serde_json::Value = serde_json::from_str(&r.dest_folder).map_err(|_| "The removed rule was not saved, so it can't be restored.".to_string())?;
+                let text = |k: &str| snap.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                let spec = crate::rules::parse_spec(&text("spec_json"))?;
+                let nr = crate::rules::NewRule {
+                    account: r.account.clone(),
+                    name: text("name"),
+                    spec,
+                    origin: if text("origin") == "ai" { "ai" } else { "user" },
+                    conv_id: None,
+                    reason: text("reason"),
+                    enabled: false,
+                };
+                let new_id = {
+                    // Restore and mark the row undone together: if marking fails the restored rule is taken out again,
+                    // so a second Undo can't duplicate it.
+                    let mut st = lock(&self.store);
+                    let new_id = st.create_rule(&nr, now)?;
+                    if st.set_log_undone(r.id, 1, "Restoring").is_err() {
+                        let _ = st.delete_rule(new_id);
+                        return Err("MiraMail couldn't record the undo, so the rule was not restored.".into());
+                    }
+                    new_id
+                };
+                if snap.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let rule = lock(&self.store).get_rule(new_id).ok().flatten().ok_or_else(|| "The restored rule could not be read.".to_string())?;
+                    if let Err(e) = self.apply_enabled(&rule, true, now) {
+                        return Ok(format!("Restored as rule {new_id} (new id), but it is OFF: {e}"));
+                    }
+                }
+                Ok(format!("Restored as rule {new_id} (new id)."))
+            }
+            _ => Err("Unknown step.".into()),
+        }
     }
 
     async fn run_create_folder(&self, p: &Proposal, scopes: &[Scope]) -> Run {
@@ -991,9 +1257,29 @@ impl Executor {
                 return run;
             }
         };
-        let name_for_scope = name.clone();
-        match self.host.create_folder(&account, &name).await {
-            Ok(created) => {
+        // Inside a parent: it must still be in the (re-read) scope and still exist; the full name is rebuilt now.
+        let created = match p.params.new_folder_parent.as_deref() {
+            None => self.host.create_folder(&account, &name).await.map(|c| (name.clone(), c)),
+            Some(parent) => {
+                if !scopes.iter().any(|s| s.account == account && s.folder == parent) {
+                    run.fatal = Some("The parent folder is outside the folders allowed for this conversation.".into());
+                    run.skipped = 1;
+                    return run;
+                }
+                if !self.host.folder_exists(&account, parent).unwrap_or(false) {
+                    run.fatal = Some("The parent folder no longer exists.".into());
+                    run.failed = 1;
+                    return run;
+                }
+                match self.host.child_folder_name(&account, parent, &name) {
+                    Ok(full) => self.host.create_folder_named(&account, &full).await.map(|c| (full, c)),
+                    Err(e) => Err(e),
+                }
+            }
+        };
+        match created {
+            Ok((name, created)) => {
+                let name_for_scope = name.clone();
                 let mut row = LogRow::new(p.id, -1, "create_folder", &account);
                 row.dest_folder = name;
                 row.outcome = if created { "ok" } else { "exists" }.into();
@@ -1060,6 +1346,10 @@ impl Executor {
             groups.entry((it.account.clone(), it.folder.clone())).or_default().push(it);
         }
         let mut aborted: Option<String> = None;
+        // Set when THIS card created the destination (then it is in scope by clause (e)); or the server's spelling of
+        // a destination that turned out to exist already.
+        let mut created_here = false;
+        let mut dest_override: Option<String> = None;
 
         // A move into a new folder: create it first (once), but only when at least one selected row
         // would really be moved there: the destination account must be one of the conversation's
@@ -1075,23 +1365,58 @@ impl Executor {
                     row.outcome = "skipped".into();
                     row.error = "The new folder was not created: no selected message can be moved there.".into();
                     let _ = lock(&self.store).add_log(&row, (self.clock)());
-                } else if self.host.folder_exists(&acc, &name).unwrap_or(false) {
-                    row.outcome = "exists".into();
-                    row.error = "The folder already existed.".into();
+                } else if let Some(parent) = p.params.new_folder_parent.as_deref().filter(|par| {
+                    !scopes.iter().any(|s| s.account == acc && s.folder == *par) || !self.host.folder_exists(&acc, par).unwrap_or(false)
+                }) {
+                    let in_scope = scopes.iter().any(|s| s.account == acc && s.folder == parent);
+                    row.outcome = "skipped".into();
+                    row.error = if in_scope { "The parent folder no longer exists." } else { "The parent folder is outside the folders allowed for this conversation." }.into();
                     let _ = lock(&self.store).add_log(&row, (self.clock)());
+                    aborted = Some(format!("The new folder was not created: {}", row.error.to_lowercase()));
+                    run.fatal = Some(row.error.clone());
+                } else if let Some(e) = p.params.new_folder_parent.as_deref().and_then(|par| self.host.check_parent(&acc, par).err()) {
+                    row.outcome = "skipped".into();
+                    row.error = e.clone();
+                    let _ = lock(&self.store).add_log(&row, (self.clock)());
+                    aborted = Some(format!("The new folder was not created: {e}"));
+                    run.fatal = Some(e);
+                } else if let Some(real) = self.host.find_folder(&acc, &name).ok().flatten() {
+                    // It exists already (made meanwhile, or never new): reuse it, but only if it is inside the
+                    // conversation's scope; otherwise refuse the whole card before anything moves.
+                    row.dest_folder = real.clone();
+                    if scopes.iter().any(|s| s.account == acc && s.folder == real) {
+                        row.outcome = "exists".into();
+                        row.error = "The folder already existed.".into();
+                        let _ = lock(&self.store).add_log(&row, (self.clock)());
+                        dest_override = Some(real);
+                    } else {
+                        row.outcome = "skipped".into();
+                        row.error = "That folder already exists and is outside the folders allowed for this conversation.".into();
+                        let _ = lock(&self.store).add_log(&row, (self.clock)());
+                        aborted = Some(format!("Nothing was moved: {}", row.error));
+                        run.fatal = Some(row.error.clone());
+                    }
                 } else {
-                    match self.host.create_folder(&acc, &name).await {
+                    let made = if p.params.new_folder_parent.is_some() { self.host.create_folder_named(&acc, &name).await } else { self.host.create_folder(&acc, &name).await };
+                    match made {
                         Ok(created) => {
                             row.outcome = if created { "ok" } else { "exists" }.into();
                             if !created {
                                 row.error = "The folder already existed.".into();
                             }
-                            let _ = lock(&self.store).add_log(&row, (self.clock)());
                             run.folders_changed |= created;
                             if created {
                                 // Created by THIS approved move: the folder joins the conversation's allowed set, like an approved create-folder card.
                                 let _ = lock(&self.store).add_conv_folder(p.conv_id, &acc, &name);
+                                created_here = true;
+                            } else if !scopes.iter().any(|s| s.account == acc && s.folder == name) {
+                                // Someone else made it between our check and the create: not ours, so it must be in scope.
+                                row.outcome = "skipped".into();
+                                row.error = "That folder already exists and is outside the folders allowed for this conversation.".into();
+                                aborted = Some(format!("Nothing was moved: {}", row.error));
+                                run.fatal = Some(row.error.clone());
                             }
+                            let _ = lock(&self.store).add_log(&row, (self.clock)());
                         }
                         Err(e) => {
                             row.outcome = "failed".into();
@@ -1140,7 +1465,18 @@ impl Executor {
             let dest: Result<Option<String>, String> = match p.kind {
                 Kind::Move => {
                     if p.params.dest_account.as_deref() == Some(account.as_str()) {
-                        p.params.dest_folder.clone().map(Some).ok_or_else(|| "No destination folder.".to_string())
+                        match dest_override.clone().or_else(|| p.params.dest_folder.clone()) {
+                            None => Err("No destination folder.".to_string()),
+                            Some(name) => {
+                                // Server's spelling, then the re-read scope: a destination this card did not create must still be allowed.
+                                let real = self.host.find_folder(&account, &name).ok().flatten().unwrap_or(name);
+                                if created_here || scopes.iter().any(|s| s.account == account && s.folder == real) {
+                                    Ok(Some(real))
+                                } else {
+                                    Err("The destination folder is outside the folders allowed for this conversation.".to_string())
+                                }
+                            }
+                        }
                     } else {
                         Err("The destination folder belongs to a different account.".to_string())
                     }
@@ -1380,7 +1716,19 @@ impl Executor {
         type FlagKey = (String, String, Option<u32>, String, bool);
         let mut flags: BTreeMap<FlagKey, Vec<&LogRow>> = BTreeMap::new();
         for r in &rows {
-            if r.op == "move" {
+            if r.op.starts_with("rule_") {
+                match self.undo_rule_row(r) {
+                    Ok(note) => {
+                        let _ = lock(&self.store).set_log_undone(r.id, 1, &note);
+                        undone += 1;
+                    }
+                    Err(e) => {
+                        note(&e, &mut errors);
+                        self.mark_undo(id, r, Err(e));
+                        failed += 1;
+                    }
+                }
+            } else if r.op == "move" {
                 moves.entry((r.account.clone(), r.dest_folder.clone(), r.dest_validity, r.src_folder.clone())).or_default().push(r);
             } else if r.op == "flag" {
                 match (r.flag_old, r.flag_new) {
@@ -1530,6 +1878,11 @@ impl Executor {
             }
         }
     }
+}
+
+/// What Undo needs to put a discarded rule back (JSON in the log row's `dest_folder`).
+fn rule_snapshot(r: &crate::rules::Rule) -> String {
+    serde_json::json!({"name": r.name, "spec_json": r.spec_json, "enabled": r.enabled, "origin": r.origin, "reason": r.reason}).to_string()
 }
 
 /// A log row an undo should try to reverse.

@@ -243,6 +243,22 @@ pub struct Automation {
     previews: Mutex<HashMap<i64, (String, Vec<rules::Target>)>>,
 }
 
+/// The Rules screen's "turn on" step for the AI executor: start the rule's cursors at "now" (new mail only).
+pub struct AppRuleHook {
+    pub store: Arc<Mutex<Store>>,
+    pub busy: proposals::Busy,
+    pub actions: Arc<dyn MailActionHost>,
+    pub mail: Arc<dyn RuleMail>,
+    pub now: NowFn,
+}
+
+impl proposals::RuleHook for AppRuleHook {
+    fn baseline(&self, rule_id: i64) -> Result<(), String> {
+        let ex = Executor::new(self.store.clone(), self.actions.clone(), self.now.clone(), self.busy.clone());
+        RuleRunner::new(self.store.clone(), self.mail.clone(), ex).baseline(rule_id)
+    }
+}
+
 impl Automation {
     pub fn new(
         store: Arc<Mutex<Store>>,
@@ -415,13 +431,9 @@ impl ReplySender for AppSender {
             let password = st.password(&account)?;
             let raw = mailcore::smtp::send(&cfg, &password, &msg).await.map_err(|e| SendFail { unknown: e.outcome_unknown(), msg: e.to_string() })?;
             // The reply is out. A copy in Sent is best effort, like Compose.
-            let folders = st.storage.list_folders(&account).unwrap_or_default();
-            if let Some(sent) = mailcore::imap::find_role(&folders, mailcore::FolderRole::Sent) {
-                if let Ok(mut conn) = st.connect(&account).await {
-                    let _ = conn.client.append(&sent.name, &raw, true).await;
-                    conn.close().await;
-                }
-            }
+            // Same duplicate-safe Sent copy as Compose; in the background so the reply loop is not held up by the wait.
+            let app = self.app.clone();
+            tauri::async_runtime::spawn(async move { crate::outbox::save_to_sent(&app, &account, &raw).await });
             Ok(())
         })
     }
@@ -671,11 +683,12 @@ impl Automation {
         if enabled && rule.spec.is_none() {
             return Err("This rule is damaged. Edit and save it first.".into());
         }
-        lock(&self.store).set_rule_enabled(id, enabled, now).map_err(db)?;
         if enabled {
             // Only mail that arrives from now on is processed; the preview showed what existing mail would match.
+            // The cursors are set BEFORE the rule is switched on, so it never runs without them.
             self.runner().baseline(id)?;
         }
+        lock(&self.store).set_rule_enabled(id, enabled, now).map_err(db)?;
         let r = lock(&self.store).get_rule(id).map_err(db)?.ok_or("That rule no longer exists.")?;
         Ok(rule_wire(&r))
     }
