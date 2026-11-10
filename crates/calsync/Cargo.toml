@@ -2,7 +2,7 @@
 name = "calsync"
 version = "0.1.0"
 edition = "2021"
-license = "LicenseRef-Proprietary"
+license = "Apache-2.0"
 publish = false
 description = "MiraMail calendar network layer: CalDAV sync (RFC 4791/6764) and Zoom OAuth2+PKCE / Meetings API."
 

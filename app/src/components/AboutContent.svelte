@@ -39,7 +39,7 @@
       <strong>© MIRASTACK LABS PRIVATE LIMITED</strong><br />
       The colours and visual identity of MiraMail are taken from MIRASTACK LABS.
     </p>
-    <p class="mono small">Free to use. All rights reserved.</p>
+    <p class="mono small">Free and open source, Apache License 2.0.</p>
     <button class="btn ghost sm" onclick={site}>mirastacklabs.ai</button>
     <details class="doc">
       <summary>Privacy policy</summary>

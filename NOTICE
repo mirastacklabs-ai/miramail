@@ -1,9 +1,20 @@
 MiraMail
-Copyright (c) 2026 MIRASTACK LABS PRIVATE LIMITED
-Proprietary freeware. All rights reserved. See LICENSE.
-The MIRASTACK name, logo and visual identity are trademarks of MIRASTACK LABS PRIVATE LIMITED and are not licensed for reuse.
+Copyright 2026 MIRASTACK LABS PRIVATE LIMITED (https://www.mirastacklabs.ai)
+
+This product includes software developed by MIRASTACK LABS PRIVATE LIMITED.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Attribution: any work that uses or is derived from MiraMail must keep this
+NOTICE file and credit "MiraMail by MIRASTACK LABS" as section 4(d) of the
+Apache License requires.
+
+Trademarks: the names MiraMail, MIRA and MIRASTACK, the MiraMail app icon, the
+MIRASTACK logo and visual identity are not licensed (Apache License section 6).
+Modified versions must use a different name and icon.
 
 Visual identity (colour palette, typography choices, logo bars motif) from MIRASTACK LABS PRIVATE LIMITED, https://www.mirastacklabs.ai
 Bundled fonts: Oswald and JetBrains Mono, SIL Open Font License 1.1.
 
 App icon and logo: original design by MIRASTACK LABS PRIVATE LIMITED (hand-drawn SVG, no third-party glyphs); source: app/src-tauri/icons/source/miramail-icon-v2.svg.
+
+Third-party software included in MiraMail is listed in THIRD_PARTY_NOTICES.md, with full texts in THIRD_PARTY_LICENSES.txt.

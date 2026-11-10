@@ -2,7 +2,7 @@
 name = "calendar"
 version = "0.1.0"
 edition = "2021"
-license = "LicenseRef-Proprietary"
+license = "Apache-2.0"
 publish = false
 description = "MiraMail calendar core: ICS (RFC 5545), RRULE, iTIP (RFC 5546), SQLite storage. No network."
 

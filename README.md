@@ -1,6 +1,6 @@
 # MiraMail
 
-A free, ad-free mail client for macOS that works with any IMAP mailbox, with MIRA, an optional AI assistant that uses your own AI provider and only the folders you allow.
+A free, open-source, ad-free mail client for macOS that works with any IMAP mailbox, with MIRA, an optional AI assistant that uses your own AI provider and only the folders you allow.
 
 **Email → password → inbox.** No server settings. No account with us. No telemetry.
 
@@ -21,7 +21,7 @@ Automation rules and the template auto-reply use no AI model and run only while 
 `cd app && npm install && npm run tauri -- build --bundles app`, then copy `target/release/bundle/macos/MiraMail.app` to /Applications. Tests: `cargo test --workspace` and `cd app && npm run check`.
 
 ## Licence
-Proprietary freeware, all rights reserved (see `LICENSE`). The source is public so you can see what the app does; that grants no rights beyond `LICENSE`. MiraMail is not open source. Third-party notices: `THIRD_PARTY_NOTICES.md`.
+Apache License 2.0 (see `LICENSE`). You may use, change and redistribute MiraMail, including commercially, as long as you keep the copyright and the `NOTICE` file and credit "MiraMail by MIRASTACK LABS". The MiraMail, MIRA and MIRASTACK names, the app icon and the logo are not licensed: a modified version needs its own name and icon. Third-party notices: `THIRD_PARTY_NOTICES.md`.
 
 Support: hello@mirastacklabs.ai
 

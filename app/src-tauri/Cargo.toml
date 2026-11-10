@@ -3,7 +3,7 @@ name = "miramail"
 version = "1.0.0"
 edition = "2021"
 description = "MiraMail: ad-free, lightweight macOS mail client"
-license = "LicenseRef-Proprietary"
+license = "Apache-2.0"
 publish = false
 
 [build-dependencies]
