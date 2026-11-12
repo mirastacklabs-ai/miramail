@@ -8,3 +8,11 @@ dist/
 # Plans and specs live in the private miramail-docs repo (owner decision 2026-11-08)
 /docs/
 /CLAUDE.md
+
+# xcodegen outputs of the iOS device/sim scripts (regenerated every build; the xcodeproj must sit next to its sources)
+**/gen/apple/project.device.yml
+**/gen/apple/project.sim.yml
+**/gen/apple/Externals/
+
+# Swift API copy that tauri-plugin generates into each plugin at build time
+**/plugins/*/.tauri/

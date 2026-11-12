@@ -4,6 +4,7 @@
   import { app } from "../lib/state.svelte";
   import { forwardMessage, replyTo } from "../lib/compose";
   import { prefs } from "../lib/prefs.svelte";
+  import { phone } from "../lib/phone.svelte";
   import { bodyBaseCss } from "../lib/prefs-model";
   import { addrFull, addrLabel, buildSrcdoc, extractLinks, fmtSize, fullDate, linkAction } from "../lib/util";
   import type { Attachment } from "../lib/types";
@@ -15,16 +16,17 @@
   import ImageAllow from "./ImageAllow.svelte";
   import Attachments from "./Attachments.svelte";
   import PrintSheet from "./PrintSheet.svelte";
+  import { readerView } from "../lib/readerview.svelte";
   import ThreadStrip from "./ThreadStrip.svelte";
   import SafetyBanner from "./SafetyBanner.svelte";
 
   const b = $derived(app.body);
   const sel = $derived(app.selected);
-  let mode = $state<"html" | "text">("html");
+  const mode = $derived(readerView.mode);
   let lastUid = -1;
   $effect(() => {
     const u = b?.summary.uid ?? -1;
-    if (u !== lastUid) { lastUid = u; mode = "html"; }
+    if (u !== lastUid) { lastUid = u; readerView.mode = "html"; }
   });
 
   const hasHtml = $derived(!!b?.html);
@@ -63,6 +65,18 @@
       if (!d?.documentElement) return;
       const h = Math.min(Math.max(d.documentElement.scrollHeight, 80), 40000);
       if (Math.abs(node.offsetHeight - h) > 1) node.style.height = `${h}px`;
+      if (phone.on) scaleToFit(d, h);
+    };
+    // Phone: a fixed-width newsletter is shrunk to the screen width instead of being cut off. Width is fixed once per load.
+    let natural = 0;
+    const scaleToFit = (d: Document, h: number) => {
+      const host = node.parentElement;
+      if (!host) return;
+      if (!natural) { natural = d.documentElement.scrollWidth; if (natural <= host.clientWidth + 1) { natural = -1; } }
+      if (natural <= 0) return;
+      const s = host.clientWidth / natural;
+      node.style.width = `${natural}px`; node.style.transformOrigin = "0 0"; node.style.transform = `scale(${s})`;
+      host.style.height = `${Math.ceil(h * s)}px`;
     };
     const onload = () => {
       ro?.disconnect();
@@ -109,7 +123,7 @@
   }
 </script>
 
-<section class="reader" aria-label="Reading pane">
+<section class="reader" class:ph={phone.on} aria-label="Reading pane">
   {#if app.bodyLoading && !b}
     <div class="pad">
       <div class="skeleton" style="height:22px;width:60%"></div>
@@ -124,6 +138,7 @@
       <span>Pick a message from the list. <span class="mono">j</span>/<span class="mono">k</span> to move, <span class="mono">Enter</span> to open, <span class="mono">c</span> to compose.</span>
     </div>
   {:else}
+    {#if !phone.on}
     <div class="bar" role="toolbar" aria-label="Message actions">
       <button class="btn ghost sm" onclick={() => replyTo(false)}>Reply</button>
       <button class="btn ghost sm" onclick={() => replyTo(true)}>Reply all</button>
@@ -138,12 +153,13 @@
       <ReaderMore />
       {#if hasHtml}
         <div class="seg" role="group" aria-label="Message view">
-          <button class:on={mode === "html"} aria-pressed={mode === "html"} onclick={() => (mode = "html")}>Formatted</button>
-          <button class:on={mode === "text"} aria-pressed={mode === "text"} onclick={() => (mode = "text")}>Plain text</button>
+          <button class:on={mode === "html"} aria-pressed={mode === "html"} onclick={() => (readerView.mode = "html")}>Formatted</button>
+          <button class:on={mode === "text"} aria-pressed={mode === "text"} onclick={() => (readerView.mode = "text")}>Plain text</button>
         </div>
       {/if}
       <button class="btn danger sm" onclick={() => app.deleteForever()}>Delete forever</button>
     </div>
+    {/if}
 
     <div class="scroll">
       <ThreadStrip account={b.summary.account} folder={b.summary.folder} uid={b.summary.uid} />
@@ -247,6 +263,8 @@
 <PrintSheet plain={mode === "text"} />
 
 <style>
+  .reader.ph .scroll { padding: 14px 14px 28px; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
+  .reader.ph h1 { font-size: 1.2rem; }
   .reader { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
   .pad { padding: 32px; }
   .blank { margin: auto; display: grid; gap: 10px; justify-items: center; text-align: center; color: var(--muted); max-width: 320px; font-size: 0.9333rem; }

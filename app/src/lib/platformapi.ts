@@ -49,8 +49,8 @@ export const platformApi = {
   takePendingMailto: (): Promise<MailtoDraft[]> => (isTauri ? invoke("take_pending_mailto") : Promise.resolve([])),
   notifyTest: (): Promise<void> => (isTauri ? invoke("notify_test") : Promise.resolve()),
   /** Build/runtime facts that decide which settings are offered (sandboxed App Store build, launch-at-login support). */
-  platformInfo: (): Promise<{ sandboxed: boolean; launchAtLogin: boolean }> =>
-    isTauri ? invoke("platform_info") : Promise.resolve({ sandboxed: false, launchAtLogin: true }),
+  platformInfo: (): Promise<{ sandboxed: boolean; launchAtLogin: boolean; notifications: boolean }> =>
+    isTauri ? invoke("platform_info") : Promise.resolve({ sandboxed: false, launchAtLogin: true, notifications: true }),
   getLaunchAtLogin: (): Promise<boolean> => (isTauri ? invoke("get_launch_at_login") : Promise.resolve(mockLogin)),
   setLaunchAtLogin: (on: boolean): Promise<boolean> => {
     if (isTauri) return invoke("set_launch_at_login", { on });

@@ -1,0 +1,554 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		083024749320ED6C0793C6F2 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BF669B53C1E99FE28C768030 /* WebKit.framework */; };
+		304193E7E3093D0481FE1330 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 06DCF0B926C554A237094B60 /* main.mm */; };
+		36695B86E8432539B4001C6E /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3C96DFBF470013B87E9FE713 /* UIKit.framework */; };
+		46980897FCD62261F34AEDE3 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = ED8C33EC099F6931C919231A /* libapp.a */; };
+		56819B34DB73C615DAA389B0 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C6083403421388B5E64921BA /* Metal.framework */; };
+		5DFFC70C302BFD89826B7916 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E107671B4A0A68DD92D48148 /* Assets.xcassets */; };
+		9B2A4F4F5FFBA9219C14255C /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 41806BEA5065F50F53EEB3C6 /* LaunchScreen.storyboard */; };
+		A1775E03C90CE4687C0F0907 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 1FDF26B26D85649304C92EEC /* assets */; };
+		BB4B8D57F38F874F76E0F29E /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 23F92862F1CCDB5CDCC4A005 /* QuartzCore.framework */; };
+		C06A8D393CF33BF0959BC3FA /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 30C2DC75F5B424C2A0C5852C /* CoreGraphics.framework */; };
+		D8BAE5F3193ACCB44E905196 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A110039158C3349394B6F16 /* MetalKit.framework */; };
+		FF4DF58B6828A381E6FBDC01 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 92A1AA35AA2FEA4A52BDC727 /* Security.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		06DCF0B926C554A237094B60 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		093E0932909D4208FA6A8955 /* cal_sched.rs */ = {isa = PBXFileReference; path = cal_sched.rs; sourceTree = "<group>"; };
+		14DC21E05BFFB95923E0C384 /* secrets_cache.rs */ = {isa = PBXFileReference; path = secrets_cache.rs; sourceTree = "<group>"; };
+		17701866580F219955E00E4D /* cal_state.rs */ = {isa = PBXFileReference; path = cal_state.rs; sourceTree = "<group>"; };
+		1A9A78C142A4DC49B2A9C880 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		1B82A9CB070E83FDDE13C070 /* badge.rs */ = {isa = PBXFileReference; path = badge.rs; sourceTree = "<group>"; };
+		1FDF26B26D85649304C92EEC /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		221206EFA4C83969D2454569 /* vcard.rs */ = {isa = PBXFileReference; path = vcard.rs; sourceTree = "<group>"; };
+		23F92862F1CCDB5CDCC4A005 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		250B2C248EF34C44A741FCCC /* mbox_export.rs */ = {isa = PBXFileReference; path = mbox_export.rs; sourceTree = "<group>"; };
+		258EF391873ABD1E6E09C3E8 /* tests.rs */ = {isa = PBXFileReference; path = tests.rs; sourceTree = "<group>"; };
+		26DB7B54A30389CF35F3CF18 /* cal_invite.rs */ = {isa = PBXFileReference; path = cal_invite.rs; sourceTree = "<group>"; };
+		2CEA092C47EF32DC5EBC3A62 /* vacation.rs */ = {isa = PBXFileReference; path = vacation.rs; sourceTree = "<group>"; };
+		2DA7D172453ECCE1E678DE54 /* wire.rs */ = {isa = PBXFileReference; path = wire.rs; sourceTree = "<group>"; };
+		30C2DC75F5B424C2A0C5852C /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		30EA53DB27D41D4CC91303C1 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		35DAA3DAD575232C72A00985 /* plat_prefs.rs */ = {isa = PBXFileReference; path = plat_prefs.rs; sourceTree = "<group>"; };
+		3A110039158C3349394B6F16 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		3C96DFBF470013B87E9FE713 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		3DD405F961B4B49B8886F141 /* miramail_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = miramail_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4014552C3664905AFD788E0D /* tests.rs */ = {isa = PBXFileReference; path = tests.rs; sourceTree = "<group>"; };
+		403A9B85E3C2EB7A686ECB0D /* automation.rs */ = {isa = PBXFileReference; path = automation.rs; sourceTree = "<group>"; };
+		41806BEA5065F50F53EEB3C6 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		4C69A2CEDE4E503B09462DF7 /* panes.rs */ = {isa = PBXFileReference; path = panes.rs; sourceTree = "<group>"; };
+		4DE957B6DD6DFD48D3325815 /* mobile.rs */ = {isa = PBXFileReference; path = mobile.rs; sourceTree = "<group>"; };
+		5044C27B5FB81E9EBBD78051 /* tone.rs */ = {isa = PBXFileReference; path = tone.rs; sourceTree = "<group>"; };
+		56B91FD82091AE9FBAF5932F /* commands.rs */ = {isa = PBXFileReference; path = commands.rs; sourceTree = "<group>"; };
+		5DD770D9C044E33E2012B170 /* cache_ctl.rs */ = {isa = PBXFileReference; path = cache_ctl.rs; sourceTree = "<group>"; };
+		6B3DD85EA44045CEDE8560E9 /* outbox.rs */ = {isa = PBXFileReference; path = outbox.rs; sourceTree = "<group>"; };
+		6DFB4B0477B0D235E5B0B6B9 /* files.rs */ = {isa = PBXFileReference; path = files.rs; sourceTree = "<group>"; };
+		7D58E583EA81EC4190E7C594 /* cal_logic.rs */ = {isa = PBXFileReference; path = cal_logic.rs; sourceTree = "<group>"; };
+		7DB480B4FED586456C21F60E /* drafts.rs */ = {isa = PBXFileReference; path = drafts.rs; sourceTree = "<group>"; };
+		7DDF7D9E2FC8E4D901217C86 /* notify.rs */ = {isa = PBXFileReference; path = notify.rs; sourceTree = "<group>"; };
+		821B0833ADBB05C0A364B0DC /* mailto.rs */ = {isa = PBXFileReference; path = mailto.rs; sourceTree = "<group>"; };
+		823355688ACA9041C27BB98B /* snooze.rs */ = {isa = PBXFileReference; path = snooze.rs; sourceTree = "<group>"; };
+		895FA634BE6F82A3ADEFB78B /* widget.rs */ = {isa = PBXFileReference; path = widget.rs; sourceTree = "<group>"; };
+		8CBA6CEC6FB05E4A5766FC6C /* localorg.rs */ = {isa = PBXFileReference; path = localorg.rs; sourceTree = "<group>"; };
+		8DCC6051340FC9C31CFC5C6B /* commands.rs */ = {isa = PBXFileReference; path = commands.rs; sourceTree = "<group>"; };
+		8FA346E16E25CDA10E33E840 /* menu.rs */ = {isa = PBXFileReference; path = menu.rs; sourceTree = "<group>"; };
+		92A1AA35AA2FEA4A52BDC727 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		9363D4D677B311AB5315F5E7 /* cal_cmds.rs */ = {isa = PBXFileReference; path = cal_cmds.rs; sourceTree = "<group>"; };
+		94F23F10BF4BE5EE8D5767F0 /* live.rs */ = {isa = PBXFileReference; path = live.rs; sourceTree = "<group>"; };
+		958B3EE5CEB133DF7DEC6A20 /* bgsync.rs */ = {isa = PBXFileReference; path = bgsync.rs; sourceTree = "<group>"; };
+		962C80676F3E0618AA8890FD /* organise.rs */ = {isa = PBXFileReference; path = organise.rs; sourceTree = "<group>"; };
+		989C81FCD296848B33F84C57 /* safety_cmds.rs */ = {isa = PBXFileReference; path = safety_cmds.rs; sourceTree = "<group>"; };
+		9D731E4731DC665E70B48563 /* textsafe.rs */ = {isa = PBXFileReference; path = textsafe.rs; sourceTree = "<group>"; };
+		A40B810573A594B9E4BA1A45 /* wire.rs */ = {isa = PBXFileReference; path = wire.rs; sourceTree = "<group>"; };
+		B2FCF8495ED360ABFA17E403 /* winstate.rs */ = {isa = PBXFileReference; path = winstate.rs; sourceTree = "<group>"; };
+		B4B76E200374D6445F350ED3 /* composer.rs */ = {isa = PBXFileReference; path = composer.rs; sourceTree = "<group>"; };
+		BE90FCD3E791B4AAE6771FE8 /* miramail_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = miramail_iOS.entitlements; sourceTree = "<group>"; };
+		BF669B53C1E99FE28C768030 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		C6083403421388B5E64921BA /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		C7EC2B797C21A5651BD3D813 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		C9019D1CAD84A38DE513AF04 /* contacts.rs */ = {isa = PBXFileReference; path = contacts.rs; sourceTree = "<group>"; };
+		CAFF400D60273B6191EC3980 /* draft_mirror.rs */ = {isa = PBXFileReference; path = draft_mirror.rs; sourceTree = "<group>"; };
+		CB8551DDC6EA9AF477DA45B6 /* native.rs */ = {isa = PBXFileReference; path = native.rs; sourceTree = "<group>"; };
+		CD235F844FD6A45F94C291CF /* host.rs */ = {isa = PBXFileReference; path = host.rs; sourceTree = "<group>"; };
+		DF6EF51A1098F36F4B0712C9 /* calhost.rs */ = {isa = PBXFileReference; path = calhost.rs; sourceTree = "<group>"; };
+		E107671B4A0A68DD92D48148 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E71528569B0BC321AFA6040B /* linknav.rs */ = {isa = PBXFileReference; path = linknav.rs; sourceTree = "<group>"; };
+		E7A34404FF9F5B562CE08E85 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		E8E726E168682790C6455C00 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		ED8C33EC099F6931C919231A /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		F0679311E2B380DE9752FA4B /* tray.rs */ = {isa = PBXFileReference; path = tray.rs; sourceTree = "<group>"; };
+		FF5EB9C378EDE98F01CDD54E /* backup.rs */ = {isa = PBXFileReference; path = backup.rs; sourceTree = "<group>"; };
+		FFF10A23E24A551C655150B5 /* state.rs */ = {isa = PBXFileReference; path = state.rs; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8B5A72AB8ED0ECDFA94D579D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				46980897FCD62261F34AEDE3 /* libapp.a in Frameworks */,
+				C06A8D393CF33BF0959BC3FA /* CoreGraphics.framework in Frameworks */,
+				56819B34DB73C615DAA389B0 /* Metal.framework in Frameworks */,
+				D8BAE5F3193ACCB44E905196 /* MetalKit.framework in Frameworks */,
+				BB4B8D57F38F874F76E0F29E /* QuartzCore.framework in Frameworks */,
+				FF4DF58B6828A381E6FBDC01 /* Security.framework in Frameworks */,
+				36695B86E8432539B4001C6E /* UIKit.framework in Frameworks */,
+				083024749320ED6C0793C6F2 /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		06BDAE8C96C238FBA860B4E1 /* miramail_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				E8E726E168682790C6455C00 /* Info.plist */,
+				BE90FCD3E791B4AAE6771FE8 /* miramail_iOS.entitlements */,
+			);
+			path = miramail_iOS;
+			sourceTree = "<group>";
+		};
+		13E6A1BE3301054D667A8C6E /* src */ = {
+			isa = PBXGroup;
+			children = (
+				403A9B85E3C2EB7A686ECB0D /* automation.rs */,
+				FF5EB9C378EDE98F01CDD54E /* backup.rs */,
+				1B82A9CB070E83FDDE13C070 /* badge.rs */,
+				958B3EE5CEB133DF7DEC6A20 /* bgsync.rs */,
+				5DD770D9C044E33E2012B170 /* cache_ctl.rs */,
+				9363D4D677B311AB5315F5E7 /* cal_cmds.rs */,
+				26DB7B54A30389CF35F3CF18 /* cal_invite.rs */,
+				7D58E583EA81EC4190E7C594 /* cal_logic.rs */,
+				093E0932909D4208FA6A8955 /* cal_sched.rs */,
+				17701866580F219955E00E4D /* cal_state.rs */,
+				56B91FD82091AE9FBAF5932F /* commands.rs */,
+				B4B76E200374D6445F350ED3 /* composer.rs */,
+				C9019D1CAD84A38DE513AF04 /* contacts.rs */,
+				CAFF400D60273B6191EC3980 /* draft_mirror.rs */,
+				7DB480B4FED586456C21F60E /* drafts.rs */,
+				6DFB4B0477B0D235E5B0B6B9 /* files.rs */,
+				30EA53DB27D41D4CC91303C1 /* lib.rs */,
+				E71528569B0BC321AFA6040B /* linknav.rs */,
+				94F23F10BF4BE5EE8D5767F0 /* live.rs */,
+				8CBA6CEC6FB05E4A5766FC6C /* localorg.rs */,
+				821B0833ADBB05C0A364B0DC /* mailto.rs */,
+				1A9A78C142A4DC49B2A9C880 /* main.rs */,
+				250B2C248EF34C44A741FCCC /* mbox_export.rs */,
+				8FA346E16E25CDA10E33E840 /* menu.rs */,
+				4DE957B6DD6DFD48D3325815 /* mobile.rs */,
+				CB8551DDC6EA9AF477DA45B6 /* native.rs */,
+				7DDF7D9E2FC8E4D901217C86 /* notify.rs */,
+				962C80676F3E0618AA8890FD /* organise.rs */,
+				6B3DD85EA44045CEDE8560E9 /* outbox.rs */,
+				4C69A2CEDE4E503B09462DF7 /* panes.rs */,
+				35DAA3DAD575232C72A00985 /* plat_prefs.rs */,
+				989C81FCD296848B33F84C57 /* safety_cmds.rs */,
+				14DC21E05BFFB95923E0C384 /* secrets_cache.rs */,
+				823355688ACA9041C27BB98B /* snooze.rs */,
+				FFF10A23E24A551C655150B5 /* state.rs */,
+				9D731E4731DC665E70B48563 /* textsafe.rs */,
+				F0679311E2B380DE9752FA4B /* tray.rs */,
+				2CEA092C47EF32DC5EBC3A62 /* vacation.rs */,
+				221206EFA4C83969D2454569 /* vcard.rs */,
+				895FA634BE6F82A3ADEFB78B /* widget.rs */,
+				B2FCF8495ED360ABFA17E403 /* winstate.rs */,
+				2DA7D172453ECCE1E678DE54 /* wire.rs */,
+				34E6F4706450095344ED6710 /* ai */,
+				CB62720C3A808E96B5CAB64A /* automation */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		34E6F4706450095344ED6710 /* ai */ = {
+			isa = PBXGroup;
+			children = (
+				DF6EF51A1098F36F4B0712C9 /* calhost.rs */,
+				8DCC6051340FC9C31CFC5C6B /* commands.rs */,
+				CD235F844FD6A45F94C291CF /* host.rs */,
+				C7EC2B797C21A5651BD3D813 /* mod.rs */,
+				258EF391873ABD1E6E09C3E8 /* tests.rs */,
+				5044C27B5FB81E9EBBD78051 /* tone.rs */,
+				A40B810573A594B9E4BA1A45 /* wire.rs */,
+			);
+			path = ai;
+			sourceTree = "<group>";
+		};
+		376C11FC92DB07BD3DD87EEA /* miramail */ = {
+			isa = PBXGroup;
+			children = (
+				06DCF0B926C554A237094B60 /* main.mm */,
+				3BEFB5978AEF4BB7F6493BFD /* bindings */,
+			);
+			path = miramail;
+			sourceTree = "<group>";
+		};
+		3BEFB5978AEF4BB7F6493BFD /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				E7A34404FF9F5B562CE08E85 /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+		68924E860EFD60A6919A2706 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				376C11FC92DB07BD3DD87EEA /* miramail */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		950C17FC3BDBB15DC1A6B2BD /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				30C2DC75F5B424C2A0C5852C /* CoreGraphics.framework */,
+				ED8C33EC099F6931C919231A /* libapp.a */,
+				C6083403421388B5E64921BA /* Metal.framework */,
+				3A110039158C3349394B6F16 /* MetalKit.framework */,
+				23F92862F1CCDB5CDCC4A005 /* QuartzCore.framework */,
+				92A1AA35AA2FEA4A52BDC727 /* Security.framework */,
+				3C96DFBF470013B87E9FE713 /* UIKit.framework */,
+				BF669B53C1E99FE28C768030 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		CA39F430A4C7E40218900BFD /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		CB62720C3A808E96B5CAB64A /* automation */ = {
+			isa = PBXGroup;
+			children = (
+				4014552C3664905AFD788E0D /* tests.rs */,
+			);
+			path = automation;
+			sourceTree = "<group>";
+		};
+		D28123AFF6306648779BDE41 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3DD405F961B4B49B8886F141 /* miramail_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		E488F526C952E9FD3D4DF5DF = {
+			isa = PBXGroup;
+			children = (
+				1FDF26B26D85649304C92EEC /* assets */,
+				E107671B4A0A68DD92D48148 /* Assets.xcassets */,
+				41806BEA5065F50F53EEB3C6 /* LaunchScreen.storyboard */,
+				CA39F430A4C7E40218900BFD /* Externals */,
+				06BDAE8C96C238FBA860B4E1 /* miramail_iOS */,
+				68924E860EFD60A6919A2706 /* Sources */,
+				13E6A1BE3301054D667A8C6E /* src */,
+				950C17FC3BDBB15DC1A6B2BD /* Frameworks */,
+				D28123AFF6306648779BDE41 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		"TEMP_CDC9831F-24EC-4977-BECD-09D7156761A9" /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A70CC0FA89542992500F1FAF /* miramail_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0747C1B46B99747AF122114A /* Build configuration list for PBXNativeTarget "miramail_iOS" */;
+			buildPhases = (
+				EB8F45408DD63E97B057DE7A /* Sources */,
+				D3C972BCB704A5B6B06190BA /* Resources */,
+				8B5A72AB8ED0ECDFA94D579D /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = miramail_iOS;
+			packageProductDependencies = (
+			);
+			productName = miramail_iOS;
+			productReference = 3DD405F961B4B49B8886F141 /* miramail_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		EDC4E70F8FECA8DC9759E341 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = C6B11B58FB603C015EA2A297 /* Build configuration list for PBXProject "miramail" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = E488F526C952E9FD3D4DF5DF;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D28123AFF6306648779BDE41 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A70CC0FA89542992500F1FAF /* miramail_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D3C972BCB704A5B6B06190BA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5DFFC70C302BFD89826B7916 /* Assets.xcassets in Resources */,
+				9B2A4F4F5FFBA9219C14255C /* LaunchScreen.storyboard in Resources */,
+				A1775E03C90CE4687C0F0907 /* assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		EB8F45408DD63E97B057DE7A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				304193E7E3093D0481FE1330 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		02597A5C657DC992D5AD6004 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+		886C441EAFAA2D9FF462D8F4 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = miramail_iOS/miramail_iOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = miramail_iOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.mirastacklabs.miramail.spike;
+				PRODUCT_NAME = MiraMail;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		8C6BF72337CF1E621A91646E /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = miramail_iOS/miramail_iOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+				);
+				INFOPLIST_FILE = miramail_iOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.mirastacklabs.miramail.spike;
+				PRODUCT_NAME = MiraMail;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+		FE91C242D71E01B2484709F6 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0747C1B46B99747AF122114A /* Build configuration list for PBXNativeTarget "miramail_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				886C441EAFAA2D9FF462D8F4 /* debug */,
+				8C6BF72337CF1E621A91646E /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		C6B11B58FB603C015EA2A297 /* Build configuration list for PBXProject "miramail" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FE91C242D71E01B2484709F6 /* debug */,
+				02597A5C657DC992D5AD6004 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = EDC4E70F8FECA8DC9759E341 /* Project object */;
+}

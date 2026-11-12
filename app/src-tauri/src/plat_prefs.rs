@@ -86,6 +86,10 @@ impl PlatformPrefs {
     pub fn sanitized(mut self) -> Self {
         self.widget_geo = self.widget_geo.and_then(|g| sane_geo(g, 140.0, 140.0));
         self.main_geo = self.main_geo.and_then(|g| sane_geo(g, 860.0, 560.0));
+        // No notification backend off macOS yet (iOS phase 3): never "on", including prefs restored from a backup.
+        if !cfg!(target_os = "macos") {
+            self.notify = false;
+        }
         self.notify_off.retain(|a| !a.is_empty() && a.len() <= 320);
         self.notify_off.sort();
         self.notify_off.dedup();

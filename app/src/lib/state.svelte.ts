@@ -3,6 +3,7 @@ import { applyFilter, chipTerms, NO_CHIPS, parseQuery, type Chips, type Parsed }
 import { MARK_READ_DELAY_MS } from "./prefs-model";
 import { prefs } from "./prefs.svelte";
 import { BULK_STEP, CACHE_PAGE, coversDate, LOAD_ALL_CONFIRM_ABOVE, fmtN, mergeRows, OLDER_STEP, remainingOnServer } from "./older";
+import { thisDevice } from "./device";
 import type { AccountInfo, ConnState, Folder, FolderRole, LiveStatus, MessageBody, MessageSummary, Outgoing } from "./types";
 
 export type Theme = "system" | "dark" | "light" | "contrast";
@@ -290,7 +291,7 @@ class AppState {
     if (this.remaining > LOAD_ALL_CONFIRM_ABOVE) {
       const ok = await this.ask({
         title: `Load all ${fmtN(this.remaining)} older messages?`,
-        body: "This downloads the headers of every message in this folder. It can take a while and uses disk space on this Mac. You can cancel at any time; what is already loaded stays.",
+        body: `This downloads the headers of every message in this folder. It can take a while and uses disk space on ${thisDevice()}. You can cancel at any time; what is already loaded stays.`,
         ok: "Load all",
       });
       if (!ok) return;
@@ -521,7 +522,7 @@ class AppState {
 
   async removeAccount(email: string) {
     const snoozed = this.snoozeCountFor?.(email) ?? 0;
-    const ok = await this.ask({ title: "Remove account?", body: `${email} and its cached mail will be removed from this Mac, along with its saved password. Your mail on the server is not touched.${snoozed ? ` ${snoozed} snoozed message${snoozed === 1 ? "" : "s"} will no longer come back to your Inbox on their own (any already moved to a Snoozed folder stay there on the server).` : ""}`, ok: "Remove", danger: true });
+    const ok = await this.ask({ title: "Remove account?", body: `${email} and its cached mail will be removed from ${thisDevice()}, along with its saved password. Your mail on the server is not touched.${snoozed ? ` ${snoozed} snoozed message${snoozed === 1 ? "" : "s"} will no longer come back to your Inbox on their own (any already moved to a Snoozed folder stay there on the server).` : ""}`, ok: "Remove", danger: true });
     if (!ok) return;
     try {
       await api.removeAccount(email);

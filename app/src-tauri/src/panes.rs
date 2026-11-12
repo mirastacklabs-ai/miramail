@@ -257,7 +257,17 @@ impl Shutdown {
     }
 }
 
+/// Extra windows only exist on desktop; the phone UI is one window.
+fn desktop_only() -> Result<(), String> {
+    if cfg!(mobile) {
+        Err("Separate windows aren't available on iPhone.".to_string())
+    } else {
+        Ok(())
+    }
+}
+
 fn build_window(app: &AppHandle, id: &str, geo: Geo) -> Result<WebviewWindow, String> {
+    desktop_only()?;
     let label = label_for(id)?;
     // Both the URL fragment (`#pane=<id>`) and an init script carry the id; the frontend accepts either.
     let url = WebviewUrl::App(format!("index.html#pane={id}").into());
@@ -328,6 +338,9 @@ pub fn placement(saved: Option<Geo>, screens: &[crate::plat_prefs::Geo], main: O
 
 /// Called at setup: reopen every window that was detached when the app last quit.
 pub fn restore(app: &AppHandle) {
+    if desktop_only().is_err() {
+        return;
+    }
     let store = app.state::<PaneStore>();
     let (rows, bad) = split_restorable(store.detached().unwrap_or_default());
     for id in bad {
@@ -414,6 +427,7 @@ struct PaneEvent {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn detach_pane(app: AppHandle, window: WebviewWindow, store: State<'_, PaneStore>, pane_id: String, payload_json: String, x: f64, y: f64, w: f64, h: f64) -> Result<String, String> {
+    desktop_only()?;
     // Main, or a detached window opening a NEW pane (e.g. Cmd+N): detached windows always hold exactly one pane.
     if !valid_label(window.label()) {
         return Err("Invalid window.".into());
@@ -588,6 +602,7 @@ pub async fn focus_window(app: AppHandle, label: String) -> Result<(), String> {
         return Err("Invalid window.".into());
     }
     let w = app.get_webview_window(&label).ok_or("That window is not open.")?;
+    #[cfg(desktop)]
     let _ = w.unminimize();
     w.set_focus().map_err(|_| "Could not focus the window.".to_string())
 }

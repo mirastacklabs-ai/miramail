@@ -153,10 +153,10 @@ class Org {
   private onProgress = (p: Progress) => { if (this.progress) this.progress = { ...this.progress, ...p }; };
 
   /** Move messages of the open folder (archive, trash, junk, any folder). Undo-able. */
-  async moveUids(uids: number[], dest: { role?: FolderRole; folder?: string }, from = app.folder) {
-    const account = app.account;
+  async moveUids(uids: number[], dest: { role?: FolderRole; folder?: string }, from = app.folder, acct = app.account) {
+    const account = acct;
     if (!account || !uids.length) return;
-    if (dest.role === "trash" && roleOf(from) === "trash") return this.deleteForever(uids);
+    if (dest.role === "trash" && roleOf(from) === "trash") return this.deleteForever(uids, account, from);
     const verb = dest.role === "archive" ? "Archived" : dest.role === "trash" ? "Moved to Trash:" : dest.role === "junk" ? "Marked as junk:" : dest.role === "inbox" ? "Moved to Inbox:" : "Moved";
     const s = await this.withProgress(dest.role === "archive" ? "Archiving" : "Moving", uids.length, () =>
       runChunks(uids, (c) => orgApi.bulkMove(account, from, c.map((uid) => ({ uid })), dest) as Promise<ChunkResult>, this.onProgress, () => this.stop));
@@ -179,8 +179,8 @@ class Org {
   }
 
   /** Mark read/unread or flag/unflag. Optimistic; the messages the server did not confirm are rolled back. */
-  async flagUids(uids: number[], flag: "seen" | "flagged", value: boolean) {
-    const account = app.account, folder = app.folder;
+  async flagUids(uids: number[], flag: "seen" | "flagged", value: boolean, acct = app.account, fold = app.folder) {
+    const account = acct, folder = fold;
     if (!account || !uids.length) return;
     const before = new Map<number, boolean>();
     for (const m of app.messages) if (uids.includes(m.uid) && m.flags[flag] !== value) { before.set(m.uid, m.flags[flag]); m.flags[flag] = value; }
@@ -197,8 +197,8 @@ class Org {
   }
 
   /** Permanent deletion (only reachable from Trash), after a confirm naming the count. */
-  async deleteForever(uids: number[]) {
-    const account = app.account, folder = app.folder;
+  async deleteForever(uids: number[], acct = app.account, fold = app.folder) {
+    const account = acct, folder = fold;
     if (!account || !uids.length) return;
     const n = uids.length;
     const ok = await app.ask({ title: `Delete ${fmt(n)} message${n === 1 ? "" : "s"} forever?`, body: "They will be permanently deleted from the server. This cannot be undone.", ok: "Delete forever", danger: true });

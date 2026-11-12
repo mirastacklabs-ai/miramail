@@ -941,7 +941,13 @@ pub async fn open_attachment(app: AppHandle, state: State<'_, AppState>, account
 /// `@media print` rules hide everything else).
 #[tauri::command]
 pub fn print_page(window: tauri::WebviewWindow) -> CmdResult<()> {
-    window.print().map_err(err)
+    #[cfg(desktop)]
+    return window.print().map_err(err);
+    #[cfg(mobile)]
+    {
+        let _ = window;
+        Err("Printing isn't available on iPhone yet.".to_string())
+    }
 }
 
 /// Fill the v5 columns (attachment flag, unsubscribe headers) for mail cached before they existed, in the

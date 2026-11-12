@@ -6,6 +6,10 @@ description = "MiraMail: ad-free, lightweight macOS mail client"
 license = "Apache-2.0"
 publish = false
 
+[lib]
+name = "miramail_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

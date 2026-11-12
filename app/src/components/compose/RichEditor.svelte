@@ -2,8 +2,12 @@
   // Small contenteditable editor (no dependency). Output is untrusted until the backend sanitises it on send;
   // pasted HTML is sanitised by the backend before it is inserted, dropped HTML becomes plain text.
   import { api } from "../../lib/api";
-  import { onMount } from "svelte";
+  import { onMount, type Snippet } from "svelte";
   import Select from "../Select.svelte";
+  import { phone } from "../../lib/phone.svelte";
+  import { keepCaretVisible } from "../../lib/caret";
+  import { PHONE_ICONS } from "../../lib/phoneicons";
+  import BottomSheet from "../mobile/BottomSheet.svelte";
   import { safeInitialHtml } from "../../lib/composetext";
   import {
     applyTableOp, tableState, tabTarget, newTable, tableBlock, tableFromClipboard, clampDims, ownRowIndex, TOO_LARGE_NOTE, MAX_EDIT_CELLS, MAX_INSERT_ROWS, MAX_INSERT_COLS, MAX_ROWS, MAX_COLS,
@@ -11,9 +15,13 @@
   } from "../../lib/richtable";
   import { calloutHtml, buttonHtml, BUTTON_COLORS, dividerHtml, checklistHtml, toggleCheck, CHECK_OFF, CHECK_ON, MAX_BUTTON_LABEL, type CalloutKind, type ButtonColor } from "../../lib/richblocks";
 
-  let { html, spell = true, label = "Message body", oninput, onerror }: {
+  let { html, spell = true, label = "Message body", oninput, onerror, barTail, sheetHead }: {
     html: string; spell?: boolean; label?: string; oninput: (html: string) => void; onerror?: (msg: string) => void;
+    /** Phone layout only: extra buttons at the end of the format bar (attach, tone) and extra rows at the top of the Format sheet. */
+    barTail?: Snippet; sheetHead?: Snippet;
   } = $props();
+  const BAR_H = 52; // docked phone format bar height the caret must stay clear of
+  let focused = $state(false), fmtOpen = $state(false);
 
   let el: HTMLDivElement;
   let linkOpen = $state(false), linkUrl = $state(""), linkEl = $state<HTMLInputElement | null>(null);
@@ -87,6 +95,7 @@
   function sync() { oninput(el.innerHTML); }
 
   function run(name: string, value?: string) {
+    fmtOpen = false;
     el.focus();
     if (!inside()) restore();
     try { document.execCommand("styleWithCSS", false, "true"); } catch { /* older engines */ }
@@ -308,30 +317,7 @@
   const keep = (e: MouseEvent) => e.preventDefault();
 </script>
 
-<div class="rich">
-  <div class="tb" role="toolbar" aria-label="Formatting">
-    <button type="button" class:on={active.bold} aria-pressed={active.bold} aria-label="Bold" title="Bold (⌘B)" onmousedown={keep} onclick={() => run("bold")}><b>B</b></button>
-    <button type="button" class:on={active.italic} aria-pressed={active.italic} aria-label="Italic" title="Italic (⌘I)" onmousedown={keep} onclick={() => run("italic")}><i>I</i></button>
-    <button type="button" class:on={active.underline} aria-pressed={active.underline} aria-label="Underline" title="Underline (⌘U)" onmousedown={keep} onclick={() => run("underline")}><u>U</u></button>
-    <button type="button" class:on={active.strikeThrough} aria-pressed={active.strikeThrough} aria-label="Strikethrough" title="Strikethrough" onmousedown={keep} onclick={() => run("strikeThrough")}><s>S</s></button>
-    <span class="sep"></span>
-    <button type="button" class:on={active.ul} aria-pressed={active.ul} aria-label="Bulleted list" title="Bulleted list" onmousedown={keep} onclick={() => run("insertUnorderedList")}>• List</button>
-    <button type="button" class:on={active.ol} aria-pressed={active.ol} aria-label="Numbered list" title="Numbered list" onmousedown={keep} onclick={() => run("insertOrderedList")}>1. List</button>
-    <button type="button" aria-label="Quote" title="Quote" onmousedown={keep} onclick={toggleQuote}>“ Quote</button>
-    <button type="button" aria-label="Link" title="Link (⌘K)" onmousedown={keep} onclick={openLink}>Link</button>
-    <span class="sep"></span>
-    <Select ariaLabel="Font family" value="" placeholder="Font" compact keepFocus block={false} options={FONTS.slice(1).map(([n, v]) => ({ value: v, label: n }))} onchange={(v) => { remember(); restore(); run("fontName", v); }} />
-    <Select ariaLabel="Font size" value="" placeholder="Size" compact keepFocus block={false} options={SIZES.slice(1).map(([n, v]) => ({ value: v, label: n }))} onchange={(v) => { remember(); restore(); run("fontSize", v); }} />
-    <button type="button" bind:this={colBtn} class="colbtn" class:on={colorOpen} aria-expanded={colorOpen} aria-haspopup="true" aria-label="Text colour" title="Text colour" onmousedown={keep} onclick={toggleColor}><span class="colA" style="border-bottom-color:{curColor ?? 'currentColor'}">A</span></button>
-    <button type="button" aria-label="Clear formatting" title="Clear formatting" onmousedown={keep} onclick={clearFormat}>Clear</button>
-    <span class="sep"></span>
-    <button type="button" class:on={tableOpen} aria-expanded={tableOpen} aria-label="Insert table" title="Insert table" onmousedown={keep} onclick={() => { remember(); colorOpen = false; tableOpen = !tableOpen; btnOpen = false; linkOpen = false; }}>Table</button>
-    <Select ariaLabel="Insert callout box" value="" placeholder="Callout" compact keepFocus block={false} options={[{ value: "info", label: "Info" }, { value: "success", label: "Success" }, { value: "warning", label: "Warning" }, { value: "note", label: "Note" }]} onchange={(v) => { remember(); restore(); insertCallout(v as CalloutKind); }} />
-    <button type="button" aria-label="Insert button" title="Insert a button that links to a web page or address" onmousedown={keep} onclick={openButton}>Button</button>
-    <button type="button" aria-label="Insert divider line" title="Divider line" onmousedown={keep} onclick={() => insertBlock(dividerHtml())}>Line</button>
-    <button type="button" aria-label="Insert checklist" title="Checklist" onmousedown={keep} onclick={() => insertBlock(checklistHtml(3))}>{CHECK_OFF} List</button>
-    <button type="button" aria-label="Tick or untick this checklist line" title="Tick or untick this line" onmousedown={keep} onclick={toggleCheckHere}>{CHECK_ON}</button>
-  </div>
+{#snippet tableTools()}
   {#if ts?.tooLarge}
     <div class="tb tt" role="status"><span class="lbl">Table</span> This table is too large to edit here.</div>
   {:else if ts}
@@ -355,6 +341,8 @@
       <button type="button" class="danger" aria-label="Delete table" title="Delete the whole table" onmousedown={keep} onclick={deleteTable}>Delete table</button>
     </div>
   {/if}
+{/snippet}
+{#snippet forms()}
   {#if colorOpen}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div class="link pal" bind:this={palEl} role="group" aria-label="Text colour" tabindex="-1" onkeydown={palKey}>
@@ -396,10 +384,89 @@
       <button type="button" class="btn ghost sm" onclick={() => { linkOpen = false; el.focus(); }}>Cancel</button>
     </form>
   {/if}
+{/snippet}
+{#snippet editor()}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="ed" bind:this={el} contenteditable="true" role="textbox" tabindex="0" aria-multiline="true" aria-label={label} spellcheck={spell}
-    oninput={() => { sync(); refresh(); }} onpaste={paste} ondrop={drop} onkeydown={key} onkeyup={remember} onmouseup={remember} onblur={remember}></div>
+    oninput={() => { sync(); refresh(); if (phone.on) keepCaretVisible(el, BAR_H); }} onpaste={paste} ondrop={drop} onkeydown={key} onkeyup={remember} onmouseup={remember} onblur={() => { remember(); focused = false; }} onfocus={() => { focused = true; refresh(); }}></div>
+{/snippet}
+
+{#if phone.on}
+<div class="rich ph">
+  {@render editor()}
+  {#if focused || fmtOpen}
+    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_no_noninteractive_element_interactions -->
+    <div class="pbar" role="group" aria-label="Formatting" onpointerdown={keep} onmousedown={keep}>
+      <button type="button" aria-label="Format" onclick={() => { remember(); fmtOpen = true; }}><span class="aa">Aa</span></button>
+      <button type="button" class:on={active.bold} aria-pressed={active.bold} aria-label="Bold" onclick={() => run("bold")}><b>B</b></button>
+      <button type="button" class:on={active.italic} aria-pressed={active.italic} aria-label="Italic" onclick={() => run("italic")}><i>I</i></button>
+      <button type="button" class:on={active.underline} aria-pressed={active.underline} aria-label="Underline" onclick={() => run("underline")}><u>U</u></button>
+      <button type="button" class:on={active.ul} aria-pressed={active.ul} aria-label="Bulleted list" onclick={() => run("insertUnorderedList")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={PHONE_ICONS.bullets} /></svg></button>
+      <button type="button" class:on={active.ol} aria-pressed={active.ol} aria-label="Numbered list" onclick={() => run("insertOrderedList")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={PHONE_ICONS.numbers} /></svg></button>
+      <button type="button" aria-label="Link" onclick={() => { openLink(); fmtOpen = true; }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={PHONE_ICONS.link} /></svg></button>
+      {@render barTail?.()}
+    </div>
+  {/if}
+  {#if fmtOpen}
+    <BottomSheet title="Format" tall onclose={() => { fmtOpen = false; colorOpen = false; tableOpen = false; btnOpen = false; linkOpen = false; el.focus(); }}>
+      {@render sheetHead?.()}
+      {@render forms()}
+      {@render tableTools()}
+      <div class="fgrid" role="group" aria-label="Formatting">
+        <button type="button" class:on={active.strikeThrough} onclick={() => run("strikeThrough")}><s>S</s> Strike</button>
+        <button type="button" onclick={() => { toggleQuote(); }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={PHONE_ICONS.quote} /></svg> Quote</button>
+        <button type="button" bind:this={colBtn} class:on={colorOpen} onclick={toggleColor}><span class="colA" style="border-bottom-color:{curColor ?? 'currentColor'}">A</span> Colour</button>
+        <button type="button" onclick={clearFormat}>Clear</button>
+        <button type="button" onclick={() => { remember(); colorOpen = false; tableOpen = !tableOpen; btnOpen = false; linkOpen = false; }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={PHONE_ICONS.table} /></svg> Table</button>
+        <button type="button" onclick={openButton}>Button</button>
+        <button type="button" onclick={() => insertBlock(dividerHtml())}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={PHONE_ICONS.line} /></svg> Line</button>
+        <button type="button" onclick={() => insertBlock(checklistHtml(3))}>{CHECK_OFF} List</button>
+        <button type="button" onclick={toggleCheckHere}>{CHECK_ON} Tick line</button>
+      </div>
+      <p class="fl">Font</p>
+      <div class="fgrid" role="group" aria-label="Font family">
+        {#each FONTS.slice(1) as [n, v] (n)}<button type="button" onclick={() => run("fontName", v)}>{n}</button>{/each}
+      </div>
+      <p class="fl">Size</p>
+      <div class="fgrid" role="group" aria-label="Font size">
+        {#each SIZES.slice(1) as [n, v] (n)}<button type="button" onclick={() => run("fontSize", v)}>{n}</button>{/each}
+      </div>
+      <p class="fl">Callout</p>
+      <div class="fgrid" role="group" aria-label="Insert callout box">
+        {#each ["info", "success", "warning", "note"] as k (k)}<button type="button" onclick={() => insertCallout(k as CalloutKind)}>{k[0].toUpperCase() + k.slice(1)}</button>{/each}
+      </div>
+    </BottomSheet>
+  {/if}
 </div>
+{:else}
+<div class="rich">
+  <div class="tb" role="group" aria-label="Formatting">
+    <button type="button" class:on={active.bold} aria-pressed={active.bold} aria-label="Bold" title="Bold (⌘B)" onmousedown={keep} onclick={() => run("bold")}><b>B</b></button>
+    <button type="button" class:on={active.italic} aria-pressed={active.italic} aria-label="Italic" title="Italic (⌘I)" onmousedown={keep} onclick={() => run("italic")}><i>I</i></button>
+    <button type="button" class:on={active.underline} aria-pressed={active.underline} aria-label="Underline" title="Underline (⌘U)" onmousedown={keep} onclick={() => run("underline")}><u>U</u></button>
+    <button type="button" class:on={active.strikeThrough} aria-pressed={active.strikeThrough} aria-label="Strikethrough" title="Strikethrough" onmousedown={keep} onclick={() => run("strikeThrough")}><s>S</s></button>
+    <span class="sep"></span>
+    <button type="button" class:on={active.ul} aria-pressed={active.ul} aria-label="Bulleted list" title="Bulleted list" onmousedown={keep} onclick={() => run("insertUnorderedList")}>• List</button>
+    <button type="button" class:on={active.ol} aria-pressed={active.ol} aria-label="Numbered list" title="Numbered list" onmousedown={keep} onclick={() => run("insertOrderedList")}>1. List</button>
+    <button type="button" aria-label="Quote" title="Quote" onmousedown={keep} onclick={toggleQuote}>“ Quote</button>
+    <button type="button" aria-label="Link" title="Link (⌘K)" onmousedown={keep} onclick={openLink}>Link</button>
+    <span class="sep"></span>
+    <Select ariaLabel="Font family" value="" placeholder="Font" compact keepFocus block={false} options={FONTS.slice(1).map(([n, v]) => ({ value: v, label: n }))} onchange={(v) => { remember(); restore(); run("fontName", v); }} />
+    <Select ariaLabel="Font size" value="" placeholder="Size" compact keepFocus block={false} options={SIZES.slice(1).map(([n, v]) => ({ value: v, label: n }))} onchange={(v) => { remember(); restore(); run("fontSize", v); }} />
+    <button type="button" bind:this={colBtn} class="colbtn" class:on={colorOpen} aria-expanded={colorOpen} aria-haspopup="true" aria-label="Text colour" title="Text colour" onmousedown={keep} onclick={toggleColor}><span class="colA" style="border-bottom-color:{curColor ?? 'currentColor'}">A</span></button>
+    <button type="button" aria-label="Clear formatting" title="Clear formatting" onmousedown={keep} onclick={clearFormat}>Clear</button>
+    <span class="sep"></span>
+    <button type="button" class:on={tableOpen} aria-expanded={tableOpen} aria-label="Insert table" title="Insert table" onmousedown={keep} onclick={() => { remember(); colorOpen = false; tableOpen = !tableOpen; btnOpen = false; linkOpen = false; }}>Table</button>
+    <Select ariaLabel="Insert callout box" value="" placeholder="Callout" compact keepFocus block={false} options={[{ value: "info", label: "Info" }, { value: "success", label: "Success" }, { value: "warning", label: "Warning" }, { value: "note", label: "Note" }]} onchange={(v) => { remember(); restore(); insertCallout(v as CalloutKind); }} />
+    <button type="button" aria-label="Insert button" title="Insert a button that links to a web page or address" onmousedown={keep} onclick={openButton}>Button</button>
+    <button type="button" aria-label="Insert divider line" title="Divider line" onmousedown={keep} onclick={() => insertBlock(dividerHtml())}>Line</button>
+    <button type="button" aria-label="Insert checklist" title="Checklist" onmousedown={keep} onclick={() => insertBlock(checklistHtml(3))}>{CHECK_OFF} List</button>
+    <button type="button" aria-label="Tick or untick this checklist line" title="Tick or untick this line" onmousedown={keep} onclick={toggleCheckHere}>{CHECK_ON}</button>
+  </div>
+{@render tableTools()}
+{@render forms()}
+{@render editor()}</div>
+{/if}
 
 <svelte:window onpointerdown={outsideColor} />
 
@@ -435,4 +502,25 @@
   .ed :global(hr) { margin: 8px 0; }
   .ed :global(ul), .ed :global(ol) { margin: 4px 0; padding-left: 24px; }
   .ed :global([data-mm-sig]) { margin-top: 4px; }
+
+  /* Phone: the editor grows with its text inside the compose sheet's scroll area; the bar is docked above the keyboard. */
+  .rich.ph { flex: 1 0 auto; min-height: 0; }
+  .ph .ed { flex: 1 0 auto; min-height: 45vh; overflow: visible; padding: 12px 16px 24px; font-size: 17px; line-height: 1.45; }
+  .pbar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 30; height: 52px; display: flex; align-items: center; gap: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; background: var(--bg-band); border-top: 1px solid var(--line); padding: 0 4px; }
+  .pbar::-webkit-scrollbar { display: none; }
+  .pbar :global(button) { flex: none; width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; border-radius: var(--radius); color: var(--text); font-size: 1.05rem; padding: 0; }
+  .pbar :global(button.on) { color: var(--accent); }
+  .pbar :global(svg) { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .pbar .aa { font-family: var(--font-display, inherit); font-size: 1rem; letter-spacing: .02em; }
+  .fgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 8px; }
+  .fgrid button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: none; border: 1px solid var(--line); border-radius: var(--radius); color: var(--text); font-size: 0.85rem; padding: 4px 6px; }
+  .fgrid button.on { border-color: var(--accent); color: var(--accent); }
+  .fgrid svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .fl { margin: 8px 0 0; font-size: 0.7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+  .ph .link { flex-wrap: wrap; padding: 8px 4px; }
+  .ph .link input { min-height: 44px; }
+  .ph .link .btn { min-height: 44px; }
+  .ph .pal .sw { width: 44px; height: 44px; }
+  .ph .tb { padding: 4px 0; }
+  .ph .tb button { min-height: 44px; }
 </style>

@@ -1,0 +1,23 @@
+[package]
+name = "miramail-ios"
+version = "0.0.1"
+edition = "2021"
+description = "MiraMail iOS feasibility spike (not a product)"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "miramail_ios_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-bgrefresh = { path = "plugins/bgrefresh" }
+mailcore = { path = "../../crates/mailcore" }
+autodetect = { path = "../../crates/autodetect" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["time"] }

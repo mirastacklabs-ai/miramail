@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-simulate-fire"
+description = "Enables the simulate_fire command without any pre-configured scope."
+commands.allow = ["simulate_fire"]
+
+[[permission]]
+identifier = "deny-simulate-fire"
+description = "Denies the simulate_fire command without any pre-configured scope."
+commands.deny = ["simulate_fire"]

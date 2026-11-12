@@ -22,6 +22,8 @@
   import { contactsUi } from "./lib/contacts.svelte";
   import { cal } from "./lib/cal.svelte";
   import { platform } from "./lib/platform.svelte";
+  import { phone } from "./lib/phone.svelte";
+  import PhoneApp from "./components/mobile/PhoneApp.svelte";
   import ShortcutSheet from "./components/ShortcutSheet.svelte";
 
   onMount(() => {
@@ -58,7 +60,7 @@
 
   let gPending = 0;
   function keydown(e: KeyboardEvent) {
-    if (e.defaultPrevented) return;
+    if (e.defaultPrevented || phone.on) return;
     if (workspace.key(e)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (app.confirmReq || workspace.closeReq || workspace.drag || !app.account || cal.modalOpen) return;
@@ -107,12 +109,14 @@
 </script>
 
 <svelte:window onkeydown={keydown} onresize={() => layout.fit()} />
-<div class="drag" data-tauri-drag-region></div>
+{#if !phone.on}<div class="drag" data-tauri-drag-region></div>{/if}
 
 {#if !app.ready}
   <div class="boot"></div>
 {:else if app.accounts.length === 0 || app.addingAccount}
   <Onboarding cancellable={app.accounts.length > 0} />
+{:else if phone.on}
+  {#if workspace.ready}<PhoneApp />{:else}<div class="boot"></div>{/if}
 {:else}
   <div class="shell">
     <Sidebar />
@@ -126,7 +130,7 @@
 {#if contactsUi.open}<Contacts />{/if}
 {#if app.showAbout}<About />{/if}
 {#if app.showSettings}<Settings />{/if}
-{#if platform.showCheat}<ShortcutSheet />{/if}
+{#if platform.showCheat && !phone.on}<ShortcutSheet />{/if}
 <Overlays />
 <OutboxUi />
 <Tier2Ui />

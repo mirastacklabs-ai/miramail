@@ -6,8 +6,11 @@ import { DEFAULT_PREFS, onPrefsChanged, platformApi, type PlatformPrefs } from "
 class PlatformPrefsStore {
   v = $state<PlatformPrefs>({ ...DEFAULT_PREFS });
   loaded = $state(false);
+  /** False where the backend has no notification support (iPhone until phase 3): the Notifications UI disables its toggle. */
+  notificationsAvailable = $state(true);
 
   async load() {
+    try { this.notificationsAvailable = (await platformApi.platformInfo()).notifications; } catch { /* keep the default */ }
     try { this.v = await platformApi.getPrefs(); this.loaded = true; } catch (e) { app.notify(errMsg(e), "error"); }
   }
   /** Save a change; the backend sanitises and applies it (Dock, tray, widget window) and returns the stored value. */

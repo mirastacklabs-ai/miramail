@@ -1,4 +1,5 @@
 import "./app.css";
+import "./phone.css";
 import { mount } from "svelte";
 import App from "./App.svelte";
 import PaneWindow from "./PaneWindow.svelte";

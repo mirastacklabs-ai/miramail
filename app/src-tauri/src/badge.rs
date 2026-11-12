@@ -294,6 +294,7 @@ pub fn apply(app: &AppHandle, s: &InboxSummary, prefs: &PlatformPrefs) {
     let (app2, s2, p2) = (app.clone(), s.clone(), prefs.clone());
     let _ = app.run_on_main_thread(move || {
         if let Some(w) = app2.get_webview_window("main") {
+            #[cfg(desktop)]
             let _ = w.set_badge_count(dock_count(p2.dock_badge, s2.total));
         }
         crate::tray::sync(&app2, &s2, &p2);
@@ -331,11 +332,15 @@ pub fn get_platform_prefs(state: tauri::State<'_, PlatformState>) -> PlatformPre
 
 #[tauri::command]
 pub fn set_platform_prefs(app: AppHandle, state: tauri::State<'_, PlatformState>, prefs: PlatformPrefs) -> Result<PlatformPrefs, String> {
+    // Not implemented off macOS (iOS phase 3): refuse to store "on" rather than show a toggle that does nothing.
+    if !cfg!(target_os = "macos") && prefs.notify {
+        return Err("Notifications aren't available on iPhone yet.".into());
+    }
     let turned_on = prefs.notify && !state.get().notify;
     let p = state.set(prefs)?;
     if turned_on {
         // The user just opted in: this is the one place macOS's permission prompt is triggered (besides the test button).
-        crate::native::notifications::request_permission();
+        let _ = crate::native::notifications::request_permission(); // macOS: the prompt result is not needed here
     }
     crate::widget::sync(&app);
     refresh_now(&app);

@@ -1,5 +1,6 @@
 import { api, onCalChanged } from "./api";
 import { app } from "./state.svelte";
+import { thisDevice } from "./device";
 import { workspace } from "./workspace.svelte";
 import { rangeFor, sod, stepAnchor, titleFor, localTz, toRfc, weekStartDay, type CalMode } from "./caldate";
 import type { CalEvent, CalendarInfo, Occurrence, ZoomStatus } from "./types";
@@ -91,7 +92,7 @@ class CalState {
     try { await api.calUpdateCalendar(c.id, { name: n }); c.name = n; } catch (e) { app.fail(e); }
   }
   async remove(c: CalendarInfo) {
-    const ok = await app.ask({ title: "Remove calendar?", body: c.kind === "local" ? `“${c.name}” and its events will be deleted from this Mac.` : `“${c.name}” and its saved password will be removed from this Mac. Events on the server are not touched.`, ok: "Remove", danger: true });
+    const ok = await app.ask({ title: "Remove calendar?", body: c.kind === "local" ? `“${c.name}” and its events will be deleted from ${thisDevice()}.` : `“${c.name}” and its saved password will be removed from ${thisDevice()}. Events on the server are not touched.`, ok: "Remove", danger: true });
     if (!ok) return;
     try { await api.calRemoveCalendar(c.id); await this.refresh(); } catch (e) { app.fail(e); }
   }

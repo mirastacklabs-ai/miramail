@@ -11,14 +11,15 @@
   import { clickSel } from "../lib/bulk";
   import { COLOURS, COLOUR_CSS, type SearchScope } from "../lib/orgtypes";
   import { local } from "../lib/localorg.svelte";
+  import { vipFilter } from "../lib/vipfilter.svelte";
   import { snoozeUi } from "../lib/t2.svelte";
   import { buildRows, keyNav, navTarget, orderUids, senderAddress, threadConfirm, threadUids, type ListRow } from "../lib/thread";
   import type { MessageSummary } from "../lib/types";
 
   let { searchEl = $bindable() }: { searchEl?: HTMLInputElement } = $props();
   /** Backend search results (whole mailbox / account / cc: has: folder:) replace the loaded folder while active. */
-  let vipOnly = $state(false);
-  const rows = $derived(org.backend ? (org.results ?? []) : vipOnly ? app.filtered.filter((m) => local.isVip(m.from)) : app.filtered);
+  const vf = vipFilter;
+  const rows = $derived(org.backend ? (org.results ?? []) : vf.on ? app.filtered.filter((m) => local.isVip(m.from)) : app.filtered);
   /** Conversation view (local, from the cache): off during a mailbox-wide search. */
   const threadOn = $derived(prefs.v.threading && !org.backend);
   /** What the list shows: pinned messages first, conversations grouped when threading is on. */
@@ -159,7 +160,7 @@
   const chipDefs: { key: keyof Chips; label: string }[] = [
     { key: "unread", label: "Unread" }, { key: "flagged", label: "Flagged" }, { key: "today", label: "Today" }, { key: "week", label: "This week" },
   ];
-  const noChips = $derived(!Object.values(app.chips).some(Boolean) && !vipOnly);
+  const noChips = $derived(!Object.values(app.chips).some(Boolean) && !vf.on);
   const vipN = $derived(app.messages.reduce((n, m) => n + (local.isVip(m.from) ? 1 : 0), 0));
   function clearAll() { push("", true); app.clearFilters(); }
   function dropToken(t: { start: number; end: number }) { push(removeToken(app.query, t), true); searchEl?.focus(); }
@@ -335,13 +336,13 @@
       <button class="back" onclick={() => org.backToResults()}>← Back to search results</button>
     {/if}
     <div class="chips" role="group" aria-label="Quick filters">
-      <button class="chip" aria-pressed={noChips} onclick={() => { app.chips = { unread: false, flagged: false, today: false, week: false }; vipOnly = false; }}>All</button>
+      <button class="chip" aria-pressed={noChips} onclick={() => { app.chips = { unread: false, flagged: false, today: false, week: false }; vf.on = false; }}>All</button>
       {#each chipDefs as c (c.key)}
         <button class="chip" aria-pressed={app.chips[c.key]} onclick={() => { app.chips[c.key] = !app.chips[c.key]; }}>
           {c.label}{#if c.key === "unread" && unreadN}<span class="n">{unreadN}</span>{:else if c.key === "flagged" && flaggedN}<span class="n">{flaggedN}</span>{/if}
         </button>
       {/each}
-      <button class="chip" aria-pressed={vipOnly} disabled={org.backend} title="Only mail from your VIP senders (add them from the message menu)" onclick={() => { vipOnly = !vipOnly; }}>VIP{#if vipN}<span class="n">{vipN}</span>{/if}</button>
+      <button class="chip" aria-pressed={vf.on} disabled={org.backend} title="Only mail from your VIP senders (add them from the message menu)" onclick={() => { vf.on = !vf.on; }}>VIP{#if vipN}<span class="n">{vipN}</span>{/if}</button>
     </div>
     <div class="meta" aria-live="polite">
       <div class="toks">
@@ -395,8 +396,8 @@
             {:else}<strong>No matches</strong><span>Nothing cached matches. The mail server can look through mail that isn't downloaded yet.</span>{/if}
             <button class="clr big" disabled={org.serverBusy || org.searching} onclick={() => org.searchServer()}>{org.serverBusy ? "Asking the server…" : "Search the mail server too"}</button>
             {#if org.serverNote}<span class="selectable">{org.serverNote}</span>{/if}
-          {:else if vipOnly && !app.filterActive}<strong>No VIP mail</strong><span>None of the loaded messages is from a VIP sender. Add one from a message's right-click menu.</span>
-            <button class="clr big" onclick={() => { vipOnly = false; }}>Show all</button>
+          {:else if vf.on && !app.filterActive}<strong>No VIP mail</strong><span>None of the loaded messages is from a VIP sender. Add one from a message's right-click menu.</span>
+            <button class="clr big" onclick={() => { vf.on = false; }}>Show all</button>
           {:else if app.filterActive}<strong>No matches</strong><span>Nothing in the {fmtN(app.messages.length)} loaded messages matches.</span>
             <button class="clr big" onclick={clearAll}>Clear filters</button>
           {:else}<strong>Nothing here</strong><span>{app.syncing ? "Fetching messages…" : "This folder is empty. New mail will appear automatically."}</span>{/if}

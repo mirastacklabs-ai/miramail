@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from "../lib/state.svelte";
+  import { phone } from "../lib/phone.svelte";
   import Select from "./Select.svelte";
   import DateTimeSelect from "./DateTimeSelect.svelte";
   import { api, errMsg } from "../lib/api";
@@ -16,6 +17,10 @@
   import RichEditor from "./compose/RichEditor.svelte";
   import { lintCompose } from "../lib/composelint";
   import ToneBar from "./compose/ToneBar.svelte";
+  import BottomSheet from "./mobile/BottomSheet.svelte";
+  import { PHONE_ICONS } from "../lib/phoneicons";
+  import { keepCaretVisible } from "../lib/caret";
+  import { canSendTo, composeTitle, draftStatus } from "../lib/phonemodel";
   import { replaceBodyHtml, replaceBodyText, richOwnText } from "../lib/tonemeter";
   import AddrField from "./compose/AddrField.svelte";
   import { onDestroy, onMount, tick, untrack } from "svelte";
@@ -53,8 +58,29 @@
     laterOpen = false; void send(d.getTime());
   }
   let error = $state("");
-  let toEl = $state<HTMLInputElement>(), bodyEl = $state<HTMLTextAreaElement>(), fileEl: HTMLInputElement;
+  let toEl = $state<HTMLInputElement>(), bodyEl = $state<HTMLTextAreaElement>(), fileEl = $state<HTMLInputElement>();
   let editor = $state<RichEditor>();
+  let tone = $state<ToneBar>();
+
+  // ---- phone layout (docs/IOS_SPIKE.md "Phase 2b"): same state and send path, a different template ----
+  const PHONE_BAR_H = 52;
+  const canSend = $derived(canSendTo(splitAddrs(to), [...splitAddrs(cc), ...splitAddrs(bcc)], validAddr));
+  let moreOpen = $state(false), plainFmtOpen = $state(false), plainFocus = $state(false);
+  let pressT: ReturnType<typeof setTimeout> | undefined, pressedLong = false;
+  const pressStart = () => { pressedLong = false; clearTimeout(pressT); pressT = setTimeout(() => { pressedLong = true; if (canSend && !sending && !fwdBusy) openLater(); }, 550); };
+  const pressEnd = () => { clearTimeout(pressT); if (pressedLong) requestAnimationFrame(() => (pressedLong = false)); }; // the click that ends a long press is swallowed, then the flag clears next frame
+  $effect(() => { if (!laterOpen) pressedLong = false; }); // closing Send later also clears it
+  function sendClick() { if (pressedLong) { pressedLong = false; return; } void send(); }
+  /** Plain body: the textarea grows with its text (the sheet scrolls, not the field) and keeps the caret in view. */
+  function autosize() {
+    const t = bodyEl;
+    if (!t) return;
+    t.style.height = "auto";
+    t.style.height = `${t.scrollHeight}px`;
+  }
+  function plainInput() { touched(); autosize(); if (bodyEl) keepCaretVisible(bodyEl, PHONE_BAR_H); }
+  $effect(() => { void text; if (phone.on && mode === "plain") void tick().then(autosize); });
+  const keepFocus = (e: Event) => e.preventDefault();
 
   // ---- editor mode: plain textarea or rich contenteditable (the plain text is always kept in `text`) ----
   const initialMode: "plain" | "rich" = aiDraft ? "plain" : init.mode ?? defaultMode();
@@ -198,7 +224,7 @@
     e.preventDefault(); dragDepth = 0; over = false;
     void addFiles(Array.from(e.dataTransfer?.files ?? []));
   }
-  function picked() { void addFiles(Array.from(fileEl.files ?? [])); fileEl.value = ""; }
+  function picked() { if (!fileEl) return; void addFiles(Array.from(fileEl.files ?? [])); fileEl.value = ""; }
 
   // ---- forward: re-attach the original's files, or the whole message as .eml (fetched here, never stored in the draft) ----
   let fwd = $state(init.fwd);
@@ -335,10 +361,12 @@
   }
 
   /** The whole send (including its "Send without a subject?" question) holds the pane in this window. */
+  let sendLock = false;
   async function send(sendAt?: number) {
-    if (sending || fwdBusy || workspace.moving(myId)) return;
+    if (sendLock || sending || fwdBusy || workspace.moving(myId)) return;
+    sendLock = true; // synchronous: a second tap in the same frame cannot start another send
     workspace.setHold(myId, true);
-    try { await sendNow(sendAt); } finally { workspace.setHold(myId, false); }
+    try { await sendNow(sendAt); } finally { workspace.setHold(myId, false); sendLock = false; }
   }
   async function sendNow(sendAt?: number) {
     if (sending || fwdBusy) return;
@@ -388,6 +416,121 @@
 </script>
 
 
+{#snippet fmtHead()}
+  {#if !aiDraft}
+    <div class="fh">
+      <div class="seg" role="group" aria-label="Format">
+        <button type="button" class:on={mode === "plain"} aria-pressed={mode === "plain"} onclick={() => setMode("plain")}>Plain</button>
+        <button type="button" class:on={mode === "rich"} aria-pressed={mode === "rich"} onclick={() => setMode("rich")}>Rich</button>
+      </div>
+      <button type="button" class="tog" class:on={spell} aria-pressed={spell} onclick={toggleSpell}>Spelling</button>
+    </div>
+    {#if sigOptions.length}
+      <p class="fl" id="c-sig-l-{myId}">Signature</p>
+      <div class="sigs" role="group" aria-labelledby="c-sig-l-{myId}">
+        <button type="button" class:on={!sigId} aria-pressed={!sigId} onclick={() => { switchSig(""); touched(); }}>None</button>
+        {#each sigOptions as sg (sg.id)}<button type="button" class:on={sigId === sg.id} aria-pressed={sigId === sg.id} onclick={() => { switchSig(sg.id); touched(); }}>{sg.name}</button>{/each}
+      </div>
+    {/if}
+  {/if}
+{/snippet}
+{#snippet fmtTail()}
+  <button type="button" aria-label="Attach files" disabled={sending} onclick={() => fileEl?.click()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={PHONE_ICONS.clip} /></svg></button>
+  {#if !aiDraft}<button type="button" aria-label="Check tone" onclick={() => tone?.start()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={PHONE_ICONS.sparkle} /></svg></button>{/if}
+{/snippet}
+
+{#if phone.on}
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div class="pdlg" role="form" aria-label="Message" onkeydown={key}>
+  <header class="pnav">
+    <button type="button" class="ptxt" onclick={discard} disabled={sending}>Cancel</button>
+    <div class="ptitle"><span class="tt">{composeTitle(subject, !!init.inReplyTo)}</span>{#if draftStatus(mirrorMsg)}<span class="ts" role="status">{draftStatus(mirrorMsg)}</span>{/if}</div>
+    <button type="button" class="pic" aria-label="More" aria-haspopup="menu" onclick={() => (moreOpen = true)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={PHONE_ICONS.more} /></svg></button>
+    <button type="button" class="pic send" aria-label={sending ? "Sending" : "Send"} disabled={!canSend || sending || fwdBusy}
+      onclick={sendClick} onpointerdown={pressStart} onpointerup={pressEnd} onpointercancel={pressEnd} onpointerleave={pressEnd} oncontextmenu={(e) => e.preventDefault()}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d={PHONE_ICONS.send} /></svg></button>
+  </header>
+  <div class="pscroll" data-caret-scroll>
+    {#if aiDraft}
+      <div class="aibanner" role="note">
+        {AI_DRAFT_BANNER}
+        {#if aiWarnings.length}<ul class="ainotes">{#each aiWarnings as w}<li>{w}</li>{/each}</ul>{/if}
+      </div>
+    {/if}
+    {#if replyNotice}<div class="aibanner" role="note" data-testid="reply-to-notice">{replyNotice}</div>{/if}
+    <div class="prow"><label class="label" for="c-to-{myId}">To</label><AddrField chips id="c-to-{myId}" {account} bind:el={toEl} bind:value={to} placeholder="name@example.com" /></div>
+    {#if !showCc && !aiDraft}
+      <button type="button" class="prow pbtn" aria-expanded="false" onclick={() => (showCc = true)}><span class="label">Cc/Bcc, From</span><span class="pval">{from || account}</span></button>
+    {:else}
+      {#if !aiDraft}
+        <div class="prow"><label class="label" for="c-cc-{myId}">Cc</label><AddrField chips id="c-cc-{myId}" {account} bind:value={cc} /></div>
+        <div class="prow"><label class="label" for="c-bcc-{myId}">Bcc</label><AddrField chips id="c-bcc-{myId}" {account} bind:value={bcc} /></div>
+      {/if}
+      {#if aiDraft}<div class="prow"><span class="label">From</span><span class="pval" data-testid="ai-from">{init.account ?? ""}</span></div>
+      {:else if fromOptions.length > 1}
+        <div class="prow"><label class="label" for="c-from-{myId}">From</label>
+          <Select id="c-from-{myId}" value={from || account} options={fromOptions.map((o) => ({ value: o.address, label: mailboxLabel(o) }))} onchange={pickFrom} disabled={sending} /></div>
+      {:else}<div class="prow"><span class="label">From</span><span class="pval">{account}</span></div>{/if}
+    {/if}
+    <div class="prow"><label class="label" for="c-sub-{myId}">Subject</label><input id="c-sub-{myId}" bind:value={subject} autocomplete="off" autocapitalize="sentences" spellcheck={spell} /></div>
+    {#if error}<div class="alert" role="alert">{error}</div>{/if}
+    {#if mode === "rich" && !aiDraft}
+      <RichEditor bind:this={editor} {html} {spell} oninput={(h) => { touched(); richInput(h); }} onerror={(m) => (error = m)} label="Message body" barTail={fmtTail} sheetHead={fmtHead} />
+    {:else}
+      <label class="sr-only" for="c-body-{myId}">Message body</label>
+      <textarea id="c-body-{myId}" class="pbody" bind:this={bodyEl} bind:value={text} spellcheck={spell} oninput={plainInput} onfocus={() => (plainFocus = true)} onblur={() => (plainFocus = false)}></textarea>
+    {/if}
+    {#if pastedPics}<div class="picnote" role="note">{pastedPics === 1 ? "The picture you pasted" : `The ${pastedPics} pictures you pasted`} will be sent as {pastedPics === 1 ? "an attachment" : "attachments"} after the message, because many mail apps do not show inline pasted images.</div>{/if}
+    {#if lint.length}
+      <details class="lint">
+        <summary>{lint.length === 1 ? "1 thing may look different in some mail apps" : `${lint.length} things may look different in some mail apps`}</summary>
+        <ul>{#each lint as w (w.id)}<li><b>{w.message}</b> {w.hint}</li>{/each}</ul>
+      </details>
+    {/if}
+    {#if atts.length}
+      <ul class="atts" aria-label="Attachments">
+        {#each atts as a (a.key)}
+          <li class="chip"><span class="nm" title={a.name}>{a.name}</span><span class="sz mono">{fmtSize(a.size)}</span>
+            <button type="button" class="x" aria-label="Remove {a.name}" onclick={() => removeAtt(a)} disabled={sending}>×</button></li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
+  {#if (mode === "plain" || aiDraft) && (plainFocus || plainFmtOpen)}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="pbar2" role="group" aria-label="Message tools" onpointerdown={keepFocus} onmousedown={keepFocus}>
+      {#if !aiDraft}<button type="button" aria-label="Format" onclick={() => (plainFmtOpen = true)}><span class="aa">Aa</span></button>{/if}
+      {@render fmtTail()}
+    </div>
+  {/if}
+  {#if plainFmtOpen}<BottomSheet title="Format" onclose={() => (plainFmtOpen = false)}>{@render fmtHead()}</BottomSheet>{/if}
+  {#if moreOpen}
+    <BottomSheet title="Message" onclose={() => (moreOpen = false)}>
+      {@render fmtHead()}
+      <div class="menu" role="menu">
+        <button type="button" role="menuitem" disabled={!canSend || sending || fwdBusy} onclick={() => { moreOpen = false; openLater(); }}>Send later…</button>
+        <button type="button" role="menuitem" disabled={sending} onclick={() => { moreOpen = false; fileEl?.click(); }}>Attach files{atts.length ? ` (${fmtSize(attTotal)})` : ""}</button>
+        {#if !aiDraft}<button type="button" role="menuitem" onclick={() => { moreOpen = false; void tone?.start(); }}>Check tone</button>{/if}
+      </div>
+    </BottomSheet>
+  {/if}
+  {#if laterOpen}
+    <BottomSheet title="Send later" onclose={() => (laterOpen = false)}>
+      <div class="menu" role="menu" aria-label="Send later">
+        {#each presets(laterNow) as p (p.id)}
+          <button type="button" role="menuitem" onclick={() => { laterOpen = false; void send(p.at.getTime()); }}><span>{p.label}</span><span class="mono dim">{whenLabel(p.at.getTime(), laterNow)}</span></button>
+        {/each}
+        <div class="lcust"><span class="label" id="c-later-l-{myId}">Pick date and time</span><DateTimeSelect idPrefix="c-later-{myId}" value={laterCustom} onchange={(v) => { laterCustom = v; laterErr = ""; }} /></div>
+        {#if laterErr}<div class="lerr" role="alert">{laterErr}</div>{/if}
+        <button type="button" class="btn" onclick={pickLaterCustom}>Schedule</button>
+        <p class="lnote">Sent only while MiraMail is open. If it is closed at that time you are asked before anything goes out.</p>
+      </div>
+    </BottomSheet>
+  {/if}
+  {#if !aiDraft}<ToneBar bind:this={tone} text={mode === "rich" ? richOwnText(html) : text} html={mode === "rich" ? html : null} meterOn={prefs.v.toneMeter} canRestore={!!toneBackup && toneBackup.mode === mode} onapply={applyTone} onrestore={restoreTone} />{/if}
+  <input bind:this={fileEl} type="file" multiple hidden onchange={picked} />
+</div>
+{:else}
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="dlg" class:over role="form" aria-label="Message" onkeydown={key} ondragenter={dragEnter} ondragover={dragOver} ondragleave={dragLeave} ondrop={drop}>
     {#if over}<div class="drop" aria-hidden="true">Drop files to attach</div>{/if}
@@ -451,7 +594,7 @@
     {#if error}<div class="alert" role="alert">{error}</div>{/if}
     <input bind:this={fileEl} type="file" multiple hidden onchange={picked} />
     <footer>
-      <button class="btn ghost" onclick={() => fileEl.click()} disabled={sending} title="Attach files (or drop them here)">Attach{atts.length ? ` (${fmtSize(attTotal)})` : ""}</button>
+      <button class="btn ghost" onclick={() => fileEl?.click()} disabled={sending} title="Attach files (or drop them here)">Attach{atts.length ? ` (${fmtSize(attTotal)})` : ""}</button>
       <span class="mono hint">⌘↵ send</span>
       {#if mirrorMsg}<span class="mono hint quiet" role="status">{mirrorMsg}</span>{/if}
       <span class="grow"></span>
@@ -475,6 +618,7 @@
       <button class="btn" onclick={() => send()} disabled={sending || fwdBusy} title={fwdBusy ? "Attaching the original files…" : ""}>{sending ? "Sending…" : fwdBusy ? "Attaching…" : "Send"}</button>
     </footer>
 </div>
+{/if}
 
 <style>
   .later { position: relative; }
@@ -520,4 +664,46 @@
   .lint ul { margin: 4px 0 2px; padding-left: 18px; }
   .lint li { margin: 2px 0; } .lint b { color: var(--text); font-weight: 600; }
   .quiet { font-size: 11px; opacity: .8; }
+
+  /* ---- phone compose: nav bar, one scrolling sheet (fields + body), format bar docked above the keyboard ---- */
+  .pdlg { position: relative; flex: 1; min-height: 0; min-width: 0; background: var(--surface); display: flex; flex-direction: column; }
+  .pnav { flex: none; display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; min-height: 44px; border-bottom: 1px solid var(--line); background: var(--bg-band); padding: 0 4px; }
+  .ptxt { min-width: 44px; min-height: 44px; background: none; border: 0; color: var(--accent); font-size: 1rem; padding: 0 10px; }
+  .ptxt:disabled, .pic:disabled { opacity: .4; }
+  .ptitle { min-width: 0; display: grid; justify-items: center; text-align: center; line-height: 1.15; padding: 0 4px; }
+  .ptitle .tt { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 600; font-size: 1rem; }
+  .ptitle .ts { font-size: 0.7rem; color: var(--muted); }
+  .pic { width: 44px; height: 44px; background: none; border: 0; color: var(--accent); display: grid; place-items: center; padding: 0; }
+  .pic svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .pic.send { color: var(--accent); }
+  .pscroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; display: flex; flex-direction: column; padding-bottom: 60px; }
+  .pscroll > :global(*) { flex: none; }
+  .pscroll > :global(.rich), .pscroll > .pbody { flex: 1 0 auto; }
+  .prow { display: flex; align-items: center; gap: 10px; min-height: 44px; border-bottom: 1px solid var(--line); padding: 0 16px; width: 100%; box-sizing: border-box; }
+  .prow .label { width: 48px; flex: none; }
+  .prow > input { flex: 1; min-width: 0; min-height: 44px; background: none; border: 0; color: var(--ink); font: 400 17px var(--font-mono); padding: 0; }
+  .pbtn { background: none; border-top: 0; border-left: 0; border-right: 0; text-align: left; color: var(--muted); }
+  .pbtn .label { width: auto; }
+  .pval { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 400 15px var(--font-mono); text-align: right; user-select: text; }
+  .pbody { display: block; width: 100%; box-sizing: border-box; min-height: 160px; resize: none; background: none; border: 0; color: var(--text); font: 400 17px/1.45 var(--font-mono); padding: 12px 16px 24px; outline: none; overflow: hidden; }
+  .pdlg .alert { margin: 8px 16px; }
+  .pdlg .atts { padding: 8px 16px 12px; }
+  .pdlg .chip { min-height: 44px; font-size: 14px; padding: 0 0 0 12px; }
+  .pdlg .chip .x { min-width: 44px; min-height: 44px; font-size: 20px; }
+  .pdlg .picnote, .pdlg .lint { margin: 0 16px 8px; }
+  .pbar2 { position: absolute; left: 0; right: 0; bottom: 0; z-index: 30; height: 52px; display: flex; align-items: center; background: var(--bg-band); border-top: 1px solid var(--line); padding: 0 4px; }
+  .pbar2 button { width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; color: var(--text); padding: 0; }
+  .pbar2 svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .pbar2 .aa { font-size: 1rem; }
+  .menu { display: grid; gap: 4px; }
+  .menu > button[role="menuitem"] { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 48px; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 0 8px; color: var(--ink); font-size: 1rem; text-align: left; }
+  .menu > button[role="menuitem"]:disabled { opacity: .4; }
+  .menu .btn { min-height: 44px; }
+  .fh { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .fh .seg button, .fh .tog { min-height: 44px; padding: 0 14px; font-size: 0.75rem; }
+  .fh .tog { margin-left: 0; }
+  .fl { margin: 8px 0 4px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+  .sigs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .sigs button { min-height: 44px; background: none; border: 1px solid var(--line); border-radius: var(--radius); color: var(--text); padding: 0 14px; font-size: 0.85rem; }
+  .sigs button.on { border-color: var(--accent); color: var(--accent); }
 </style>

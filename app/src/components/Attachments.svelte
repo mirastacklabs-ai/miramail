@@ -3,6 +3,7 @@
   import { api } from "../lib/api";
   import { app } from "../lib/state.svelte";
   import { orgApi } from "../lib/orgapi";
+  import { phone } from "../lib/phone.svelte";
   import { fmtSize } from "../lib/util";
   import { previewKind, openable } from "../lib/attach";
   import type { Attachment, MessageBody } from "../lib/types";
@@ -15,10 +16,13 @@
   $effect(() => { void b.summary.uid; drop(); });
   onDestroy(drop);
 
+  const NA = "Saving and opening attachments isn't available on iPhone yet. Image attachments can be previewed here.";
   async function save(a: Attachment) {
+    if (phone.on) { app.notify(NA, "error"); return; }
     try { app.notify(`Saved to ${await api.saveAttachmentToDownloads(app.account!, b.summary.folder, b.summary.uid, a.id)}`); } catch (e) { app.fail(e); }
   }
   async function open(a: Attachment) {
+    if (phone.on) { app.notify(NA, "error"); return; }
     busy = a.id;
     try { await orgApi.openAttachment(b.summary.account, b.summary.folder, b.summary.uid, a.id); } catch (e) { app.fail(e); }
     busy = null;

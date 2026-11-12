@@ -5,6 +5,11 @@
 
 mod autoconfig;
 mod detect;
+mod dns;
+#[cfg(any(target_os = "ios", test))]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+mod dnssd; // iOS backend; also compiled for tests on the Mac (the DNS-SD API exists in macOS libSystem)
+mod dnswire;
 mod email;
 mod error;
 mod hosts;

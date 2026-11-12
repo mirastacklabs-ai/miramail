@@ -28,7 +28,10 @@
     { id: "shortcuts", label: t("prefs.tab.shortcuts") }, { id: "about", label: t("prefs.tab.about") },
   ] as const;
   type Id = (typeof TABS)[number]["id"];
-  let tab = $state<Id>(takeSettingsTab() === "ai" ? "ai" : "general");
+  /** Phone layout: one section shown inline (no modal, no tab column); the section list is PhoneSettings. */
+  let { section = null }: { section?: string | null } = $props();
+  // svelte-ignore state_referenced_locally
+  let tab = $state<Id>(section ? (TABS.find((x) => x.id === section)?.id ?? "general") : takeSettingsTab() === "ai" ? "ai" : "general");
   let tabEls: HTMLButtonElement[] = [];
 
   function tabKey(e: KeyboardEvent) {
@@ -42,14 +45,7 @@
 
 </script>
 
-<Modal title={t("prefs.title")} onclose={() => (app.showSettings = false)} width={760}>
-  <div class="prefs">
-    <div class="tabs" role="tablist" aria-label={t("prefs.sections")} aria-orientation="vertical" tabindex="-1" onkeydown={tabKey}>
-      {#each TABS as t, i (t.id)}
-        <button role="tab" id="pt-{t.id}" aria-selected={tab === t.id} aria-controls="pp-{t.id}" tabindex={tab === t.id ? 0 : -1}
-          bind:this={tabEls[i]} onclick={() => (tab = t.id)}>{t.label}</button>
-      {/each}
-    </div>
+{#snippet panelBody()}
     <div class="panel" role="tabpanel" id="pp-{tab}" aria-labelledby="pt-{tab}" tabindex="-1">
       <!-- A tab that throws while rendering shows its error here; {#key} gives every tab a fresh boundary. -->
       {#key tab}
@@ -104,8 +100,23 @@
       </svelte:boundary>
       {/key}
     </div>
+{/snippet}
+
+{#if section}
+  {@render panelBody()}
+{:else}
+<Modal title={t("prefs.title")} onclose={() => (app.showSettings = false)} width={760}>
+  <div class="prefs">
+    <div class="tabs" role="tablist" aria-label={t("prefs.sections")} aria-orientation="vertical" tabindex="-1" onkeydown={tabKey}>
+      {#each TABS as t, i (t.id)}
+        <button role="tab" id="pt-{t.id}" aria-selected={tab === t.id} aria-controls="pp-{t.id}" tabindex={tab === t.id ? 0 : -1}
+          bind:this={tabEls[i]} onclick={() => (tab = t.id)}>{t.label}</button>
+      {/each}
+    </div>
+    {@render panelBody()}
   </div>
 </Modal>
+{/if}
 
 <style>
   .prefs { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; align-items: start; }

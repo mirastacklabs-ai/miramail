@@ -5,9 +5,9 @@ use crate::email::{heuristic_candidates, heuristic_hosts, parse_email};
 use crate::error::DetectError;
 use crate::providers::ProviderDb;
 use crate::rank::rank;
-use crate::srv::{srv_candidates_for_domain, SrvRecord, SrvService};
+use crate::srv::{srv_candidates_for_domain, SrvService};
 use crate::types::*;
-use hickory_resolver::TokioResolver;
+use crate::dns::Dns;
 use std::future::Future;
 use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
@@ -76,10 +76,6 @@ fn sort_outputs(outs: &mut [TaskOut]) {
     outs.sort_by_key(|o| o.slot);
 }
 
-fn no_records(e: &hickory_resolver::ResolveError) -> bool {
-    e.is_no_records_found()
-}
-
 pub async fn detect_with(opts: &DetectOptions, email: &str) -> Result<DetectionResult, DetectError> {
     let started = Instant::now();
     let deadline = tokio::time::Instant::now() + opts.budget;
@@ -118,13 +114,7 @@ pub async fn detect_with(opts: &DetectOptions, email: &str) -> Result<DetectionR
         });
     }
 
-    let resolver: Result<TokioResolver, String> = TokioResolver::builder_tokio()
-        .map(|mut b| {
-            b.options_mut().attempts = 1;
-            b.options_mut().timeout = opts.budget;
-            b.build()
-        })
-        .map_err(|e| e.to_string());
+    let resolver = Dns::new(opts.budget);
     let http = autoconfig::client().map_err(|e| e.to_string());
 
     let mut set: JoinSet<TaskOut> = JoinSet::new();
@@ -158,28 +148,14 @@ pub async fn detect_with(opts: &DetectOptions, email: &str) -> Result<DetectionR
         let resolver = resolver.clone();
         let domain = domain.clone();
         set.spawn(timed(2, format!("srv:{domain}"), Source::Srv, deadline, async move {
-            let r = resolver?;
+            let r = resolver;
             let lookups = SrvService::ALL.map(|svc| {
                 let r = r.clone();
                 let email_domain = domain.clone();
                 let name = format!("{}.{}.", svc.label(), domain);
                 async move {
-                    match r.srv_lookup(name).await {
-                        Ok(l) => {
-                            let recs: Vec<SrvRecord> = l
-                                .iter()
-                                .map(|s| SrvRecord {
-                                    priority: s.priority(),
-                                    weight: s.weight(),
-                                    port: s.port(),
-                                    target: s.target().to_utf8(),
-                                })
-                                .collect();
-                            Ok(srv_candidates_for_domain(svc, &recs, &email_domain))
-                        }
-                        Err(e) if no_records(&e) => Ok(Vec::new()),
-                        Err(e) => Err(e.to_string()),
-                    }
+                    let recs = r.srv(name).await?;
+                    Ok::<_, String>(srv_candidates_for_domain(svc, &recs, &email_domain))
                 }
             });
             let [a, b, c, d] = lookups;
@@ -207,14 +183,11 @@ pub async fn detect_with(opts: &DetectOptions, email: &str) -> Result<DetectionR
         let resolver = resolver.clone();
         let domain = domain.clone();
         set.spawn(timed(3, format!("mx:{domain}"), Source::Mx, deadline, async move {
-            let r = resolver?;
-            let mx = match r.mx_lookup(format!("{domain}.")).await {
+            let mut recs = match resolver.mx(&domain).await {
+                Ok(m) if m.is_empty() => return Ok((vec![], vec![], None)),
                 Ok(m) => m,
-                Err(e) if no_records(&e) => return Ok((vec![], vec![], None)),
-                Err(e) => return Err(e.to_string()),
+                Err(e) => return Err(e),
             };
-            let mut recs: Vec<(u16, String)> =
-                mx.iter().map(|m| (m.preference(), m.exchange().to_utf8())).collect();
             recs.sort();
             let hosts: Vec<String> = recs.into_iter().map(|(_, h)| h).collect();
             match ProviderDb::bundled().by_mx(&hosts) {
@@ -233,17 +206,17 @@ pub async fn detect_with(opts: &DetectOptions, email: &str) -> Result<DetectionR
         let resolver = resolver.clone();
         let domain = domain.clone();
         set.spawn(timed(4, format!("heuristic:{domain}"), Source::Heuristic, deadline, async move {
-            let r = resolver?;
+            let r = resolver;
             let (ih, sh) = heuristic_hosts(&domain);
             let mut all: Vec<String> = ih.iter().chain(sh.iter()).cloned().collect();
             all.sort();
             all.dedup();
             let checks = all.iter().map(|h| {
                 let r = r.clone();
-                let h = format!("{h}.");
-                async move { r.lookup_ip(h).await.is_ok() }
+                let h = h.clone();
+                async move { r.host_exists(&h).await }
             });
-            let results = join_all(checks).await;
+            let results = join_all(checks).await.into_iter().collect::<Result<Vec<bool>, String>>()?;
             let live: Vec<&String> = all.iter().zip(results).filter(|(_, ok)| *ok).map(|(h, _)| h).collect();
             let ih: Vec<String> = ih.into_iter().filter(|h| live.contains(&h)).collect();
             let sh: Vec<String> = sh.into_iter().filter(|h| live.contains(&h)).collect();

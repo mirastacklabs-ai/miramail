@@ -23,26 +23,39 @@ impl<S: SecretStore> CachedSecretStore<S> {
     }
 }
 
+/// One lock is held across each whole operation (inner call + cache update), so a slow read-through can never
+/// insert a stale value after a concurrent set/delete finished.
 impl<S: SecretStore> SecretStore for CachedSecretStore<S> {
     fn set(&self, account: &str, secret: &str) -> Result<()> {
-        self.inner.set(account, secret)?;
-        self.map().insert(account.to_string(), secret.to_string());
-        Ok(())
+        let mut m = self.map();
+        match self.inner.set(account, secret) {
+            Ok(()) => {
+                m.insert(account.to_string(), secret.to_string());
+                Ok(())
+            }
+            Err(e) => {
+                // the stored value is unknown now: never serve the old cached one
+                m.remove(account);
+                Err(e)
+            }
+        }
     }
 
     fn get(&self, account: &str) -> Result<Option<String>> {
-        if let Some(v) = self.map().get(account) {
+        let mut m = self.map();
+        if let Some(v) = m.get(account) {
             return Ok(Some(v.clone()));
         }
         let v = self.inner.get(account)?;
         if let Some(s) = &v {
-            self.map().insert(account.to_string(), s.clone());
+            m.insert(account.to_string(), s.clone());
         }
         Ok(v)
     }
 
     fn delete(&self, account: &str) -> Result<()> {
-        self.map().remove(account);
+        let mut m = self.map();
+        m.remove(account);
         self.inner.delete(account)
     }
 }
@@ -101,6 +114,69 @@ mod tests {
         let c = CachedSecretStore::new(Counting { gets: Arc::new(AtomicUsize::new(0)), data: Mutex::new(HashMap::new()) });
         c.set("a@x.org", "old").unwrap();
         c.set("a@x.org", "new").unwrap();
+        assert_eq!(c.get("a@x.org").unwrap().as_deref(), Some("new"));
+    }
+
+    #[test]
+    fn failed_set_evicts_the_cached_value() {
+        struct FailSet(Mutex<HashMap<String, String>>, std::sync::atomic::AtomicBool);
+        impl SecretStore for FailSet {
+            fn set(&self, a: &str, s: &str) -> Result<()> {
+                if self.1.load(Ordering::SeqCst) {
+                    return Err(mailcore::Error::Secret("injected".into()));
+                }
+                self.0.lock().unwrap().insert(a.into(), s.into());
+                Ok(())
+            }
+            fn get(&self, a: &str) -> Result<Option<String>> {
+                Ok(self.0.lock().unwrap().get(a).cloned())
+            }
+            fn delete(&self, a: &str) -> Result<()> {
+                self.0.lock().unwrap().remove(a);
+                Ok(())
+            }
+        }
+        let c = CachedSecretStore::new(FailSet(Mutex::new(HashMap::new()), std::sync::atomic::AtomicBool::new(false)));
+        c.set("a@x.org", "old").unwrap();
+        c.inner.1.store(true, Ordering::SeqCst);
+        assert!(c.set("a@x.org", "new").is_err());
+        assert!(!c.map().contains_key("a@x.org"));
+        // reads go to the backing store, not a stale cache entry
+        assert_eq!(c.get("a@x.org").unwrap().as_deref(), Some("old"));
+    }
+
+    #[test]
+    fn slow_read_cannot_overwrite_a_concurrent_set() {
+        struct Slow {
+            data: Mutex<HashMap<String, String>>,
+            slow: std::sync::atomic::AtomicBool,
+        }
+        impl SecretStore for Slow {
+            fn set(&self, a: &str, s: &str) -> Result<()> {
+                self.data.lock().unwrap().insert(a.into(), s.into());
+                Ok(())
+            }
+            fn get(&self, a: &str) -> Result<Option<String>> {
+                let v = self.data.lock().unwrap().get(a).cloned();
+                if self.slow.swap(false, Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                }
+                Ok(v)
+            }
+            fn delete(&self, a: &str) -> Result<()> {
+                self.data.lock().unwrap().remove(a);
+                Ok(())
+            }
+        }
+        let inner = Slow { data: Mutex::new(HashMap::new()), slow: std::sync::atomic::AtomicBool::new(false) };
+        inner.set("a@x.org", "old").unwrap();
+        inner.slow.store(true, Ordering::SeqCst);
+        let c = Arc::new(CachedSecretStore::new(inner));
+        let c2 = c.clone();
+        let t = std::thread::spawn(move || c2.get("a@x.org").unwrap());
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        c.set("a@x.org", "new").unwrap();
+        t.join().unwrap();
         assert_eq!(c.get("a@x.org").unwrap().as_deref(), Some("new"));
     }
 }

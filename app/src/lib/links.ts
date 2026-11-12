@@ -2,11 +2,13 @@ import { openExternal } from "./api";
 import { app } from "./state.svelte";
 import { workspace } from "./workspace.svelte";
 import { linkAction } from "./util";
+import { phone } from "./phone.svelte";
 
 let asking = false;
 
 /** "Open link?" confirm showing the real address, then the system browser. A second request while the dialog is open is ignored (no stacking). */
 export async function openLink(url: string): Promise<void> {
+  if (phone.on) { app.notify("Opening links isn't available on iPhone yet.", "error"); return; }
   if (asking || app.confirmReq) return; // never replace a dialog that is already showing
   asking = true;
   try {

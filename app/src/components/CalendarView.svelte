@@ -8,10 +8,12 @@
   import EventPopover from "./EventPopover.svelte";
   import { api, errMsg } from "../lib/api";
   import { app } from "../lib/state.svelte";
+  import { phone } from "../lib/phone.svelte";
   import type { AddCalError, CalPreset, ReusableAccount } from "../lib/types";
 
   onMount(() => { void cal.start(); void cal.load(); });
-  const MODES: { m: CalMode; label: string; k: string }[] = [{ m: "day", label: "Day", k: "1" }, { m: "week", label: "Week", k: "2" }, { m: "month", label: "Month", k: "3" }, { m: "agenda", label: "Agenda", k: "4" }];
+  const ALL_MODES: { m: CalMode; label: string; k: string }[] = [{ m: "day", label: "Day", k: "1" }, { m: "week", label: "Week", k: "2" }, { m: "month", label: "Month", k: "3" }, { m: "agenda", label: "Agenda", k: "4" }];
+  const MODES = phone.on ? ALL_MODES.filter((x) => x.m !== "week") : ALL_MODES; // day / month / agenda fit a phone
   const days = $derived(daysIn(cal.range));
   const noRemote = $derived(cal.loaded && !cal.calendars.some((c) => c.kind === "caldav"));
   // One-click connect when a saved mail account is at a known calendar provider.

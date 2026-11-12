@@ -27,11 +27,14 @@ pub struct PlatformInfo {
     pub sandboxed: bool,
     /// Launch at login can be offered (SMAppService, macOS 13+).
     pub launch_at_login: bool,
+    /// New-mail notifications are implemented on this platform (macOS only until iOS phase 3). The UI hides or
+    /// disables the toggle when false.
+    pub notifications: bool,
 }
 
 #[tauri::command]
 pub fn platform_info() -> PlatformInfo {
-    PlatformInfo { sandboxed: crate::files::is_sandboxed(), launch_at_login: login::supported() }
+    PlatformInfo { sandboxed: crate::files::is_sandboxed(), launch_at_login: login::supported(), notifications: cfg!(target_os = "macos") }
 }
 
 /// Open an http(s) or mailto URL in the default app via NSWorkspace. Rejects every other scheme.
@@ -196,14 +199,19 @@ pub mod notifications {
     }
     #[cfg(not(target_os = "macos"))]
     mod imp {
-        pub fn request_authorization(_: impl Fn(bool) + 'static) -> Result<(), String> { Err("Unsupported.".into()) }
-        pub fn deliver(_: &str, _: &str, _: bool) -> Result<(), String> { Err("Unsupported.".into()) }
+        pub fn request_authorization(_: impl Fn(bool) + 'static) -> Result<(), String> { Err(super::UNSUPPORTED.into()) }
+        pub fn deliver(_: &str, _: &str, _: bool) -> Result<(), String> { Err(super::UNSUPPORTED.into()) }
     }
     pub use imp::deliver;
 
-    /// Fire-and-forget permission request (called when the user turns notifications on).
-    pub fn request_permission() {
-        let _ = imp::request_authorization(|_| {});
+    /// Shown wherever a notification call is reached on a platform without an implementation.
+    #[cfg(not(target_os = "macos"))]
+    const UNSUPPORTED: &str = "Notifications aren't available on iPhone yet.";
+
+    /// Fire-and-forget permission request (called when the user turns notifications on). Returns an error where
+    /// notifications are not implemented (iOS until phase 3) instead of pretending it worked.
+    pub fn request_permission() -> Result<(), String> {
+        imp::request_authorization(|_| {})
     }
 
     /// Ask (prompting once if undecided) and report whether notifications are allowed.

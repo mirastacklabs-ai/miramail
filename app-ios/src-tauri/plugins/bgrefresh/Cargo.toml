@@ -1,0 +1,15 @@
+[package]
+name = "tauri-plugin-bgrefresh"
+version = "0.1.0"
+edition = "2021"
+description = "iOS BGAppRefreshTask + local notification bridge (spike)"
+license = "Apache-2.0"
+publish = false
+links = "tauri-plugin-bgrefresh"
+
+[dependencies]
+tauri = { version = "2" }
+serde = "1"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

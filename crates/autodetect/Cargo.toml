@@ -17,7 +17,6 @@ path = "src/main.rs"
 [dependencies]
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "macros", "net", "time", "io-util", "io-std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-hickory-resolver = "0.25"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "0.26"
@@ -26,6 +25,10 @@ toml = { version = "0.8", default-features = false, features = ["parse"] }
 quick-xml = "0.37"
 thiserror = "2"
 rpassword = "7"
+
+# Not on iOS: the sandbox denies /etc/resolv.conf; iOS uses DNS-SD (src/dnssd.rs).
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+hickory-resolver = "0.25"
 
 [dev-dependencies]
 toml = { version = "0.8", default-features = false, features = ["display"] }

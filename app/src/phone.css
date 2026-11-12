@@ -1,0 +1,47 @@
+/* Phone layout (html.phone is set only on a phone-sized iOS / Android screen, see lib/phonemodel.ts). Nothing here applies on the Mac. */
+html.phone, html.phone body, html.phone #app { height: 100%; overscroll-behavior: none; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+html.phone body { -webkit-touch-callout: none; touch-action: manipulation; position: fixed; inset: 0; width: 100%; }
+html.phone .selectable, html.phone .selectable * { -webkit-touch-callout: default; }
+/* 16px+ in fields stops iOS zooming into them on focus */
+html.phone input, html.phone textarea { font-size: 16px !important; }
+html.phone .seg button { min-height: 44px; }
+html.phone .btn { min-height: 44px; }
+html.phone .btn.sm { min-height: 44px; }
+html.phone .iconbtn { width: 44px; height: 44px; }
+
+/* Overlays clear the tab bar / home indicator */
+html.phone .undo { bottom: calc(env(safe-area-inset-bottom) + 68px) !important; max-width: 94vw !important; }
+html.phone .toast { bottom: calc(env(safe-area-inset-bottom) + 124px) !important; max-width: 94vw !important; }
+
+/* Every Modal-based dialog (About, Contacts, calendar dialogs ...) fills the screen */
+html.phone .scrim { padding: 0 !important; }
+html.phone .modal { max-width: 100% !important; width: 100% !important; height: 100% !important; max-height: 100% !important; border-radius: 0 !important; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+
+/* Compose sheet: the phone template (Compose.svelte .pdlg) styles itself; only shared bits live here */
+html.phone .sheet .dlg { flex: 1; }
+html.phone .pdlg textarea, html.phone .pdlg input { font-size: 17px !important; }
+html.phone .pdlg .btn, html.phone .modal .btn.sm { min-height: 44px; }
+
+/* Calendar */
+html.phone .cv .tb { flex-wrap: wrap; padding: 8px 12px; }
+html.phone .cv .tb h2 { order: 5; flex-basis: 100%; margin: 4px 0 0; }
+html.phone .cv .seg button { min-height: 40px; padding: 5px 10px; }
+html.phone .ag { padding: 4px 14px 24px; }
+html.phone .ag .it { grid-template-columns: 1fr; gap: 2px; min-height: 52px; }
+html.phone .pop { left: 8px !important; right: 8px; width: auto !important; top: auto !important; bottom: calc(env(safe-area-inset-bottom) + 60px); }
+
+/* Settings sections shown inline */
+html.phone .sec .panel { gap: 16px; }
+html.phone .sec .field input, html.phone .sec .field textarea { min-height: 44px; }
+
+/* MIRA */
+html.phone .ai { min-height: 0; }
+
+/* Confirm dialog (app.ask) keeps a margin from the screen edge (the generic .scrim rule above zeroes the padding) */
+html.phone .confirm { width: calc(100% - 32px) !important; max-width: 420px; }
+html.phone .confirm .acts .btn { min-height: 44px; }
+
+/* Phone list / mailboxes: shared Modals (Outbox, Snoozed, Contacts, folder prompts, snooze dialog) fill the screen via the .modal rule above;
+   keep their action rows touchable */
+html.phone .modal .btn.ghost, html.phone .modal .iconbtn { min-height: 44px; }
+html.phone .modal input, html.phone .modal textarea { min-height: 44px; }

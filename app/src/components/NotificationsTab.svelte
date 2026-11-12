@@ -32,7 +32,8 @@
   <h3 id="nt-h">Notifications</h3>
   <p class="note">MiraMail uses the macOS notification center on this Mac. There is no push service; you are notified when new mail reaches your Inbox while MiraMail is running. Notifications are not shown while a MiraMail window is in front.</p>
 
-  <label class="chk"><input type="checkbox" checked={p.notify} disabled={!platformPrefs.loaded} onchange={(e) => platformPrefs.patch({ notify: e.currentTarget.checked })} /> Notify me about new mail</label>
+  {#if !platformPrefs.notificationsAvailable}<p class="note">New-mail notifications aren't available on iPhone yet.</p>{/if}
+  <label class="chk"><input type="checkbox" checked={p.notify} disabled={!platformPrefs.loaded || !platformPrefs.notificationsAvailable} onchange={(e) => platformPrefs.patch({ notify: e.currentTarget.checked })} /> Notify me about new mail</label>
 
   {#if p.notify}
     <label class="chk sub"><input type="checkbox" checked={p.notifyPreview} onchange={(e) => platformPrefs.patch({ notifyPreview: e.currentTarget.checked })} /> Show sender and subject (off: just "New mail")</label>

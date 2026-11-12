@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Spike: core IPC + the bgrefresh plugin","local":true,"windows":["main"],"permissions":["core:default","bgrefresh:default"]}}

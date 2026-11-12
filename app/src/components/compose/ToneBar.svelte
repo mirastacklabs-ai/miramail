@@ -4,6 +4,8 @@
   import { onDestroy } from "svelte";
   import Modal from "../Modal.svelte";
   import Select from "../Select.svelte";
+  import BottomSheet from "../mobile/BottomSheet.svelte";
+  import { phone } from "../../lib/phone.svelte";
   import { ai } from "../../lib/ai.svelte";
   import { aiApi } from "../../lib/aiapi";
   import { errMsg } from "../../lib/api";
@@ -63,18 +65,32 @@
     try { await navigator.clipboard.writeText(prepared[i].text); copied = i; setTimeout(() => { if (copied === i) copied = -1; }, 2500); } catch { err = "Could not copy. Select the text and copy it by hand."; }
   }
 
-  async function start() {
+  /** Phone: the result lives in a dismissible bottom sheet (no permanent bar). Opens only for a message to show. */
+  let sheet = $state(false);
+  export function closeSheet() { sheet = false; }
+  /** Same entry as the desktop "Check tone" button: asks for confirmation before anything is sent. */
+  export async function start() {
+    if (phone.on) {
+      // Never a second request while one runs; show the sheet instead. After Apply, "Restore my version" must stay
+      // reachable, and the last result is shown again while it is still current: neither starts a request.
+      if (stage === "busy" || stage === "confirm" || canRestore || (report && !stale)) { sheet = true; return; }
+    }
+    await begin();
+  }
+  /** Start a check: confirm notice first (clause (f)); the request itself only happens after the user confirms. */
+  async function begin() {
     hint = ""; err = "";
-    if (!draft) { hint = "Write something first."; return; }
+    if (!draft) { hint = "Write something first."; sheet = true; return; }
     await ai.load();
     const pick = ai.activeProfile && !ai.activeProfile.needsKeyReentry ? ai.activeProfile : ai.usable[0];
-    if (!pick) { hint = TONE_SETUP_HINT; return; }
+    if (!pick) { hint = TONE_SETUP_HINT; sheet = true; return; }
     profileId = pick.id;
     stage = "confirm";
   }
   async function send() {
     if (!profile) return;
     const my = ++token, pid = profile.id;
+    sheet = true;
     stage = "busy"; err = ""; report = null; checkedDraft = null; applied = false;
     try {
       const sent = draft;
@@ -91,7 +107,7 @@
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 </script>
 
-<div class="tone" role="group" aria-label="Tone check">
+{#snippet toneBody()}
   <div class="row">
     {#if meterOn}
       {#if meter}
@@ -104,7 +120,7 @@
       <span class="disc">{DISCLAIMER}</span>
     {/if}
     <span class="grow"></span>
-    <button type="button" class="btn ghost sm" onclick={start} disabled={stage === "busy"} title="Ask your AI provider for a second opinion on this draft's tone. You are asked to confirm first.">{stage === "busy" ? "Checking…" : "Check tone"}</button>
+    {#if !phone.on}<button type="button" class="btn ghost sm" onclick={start} disabled={stage === "busy"} title="Ask your AI provider for a second opinion on this draft's tone. You are asked to confirm first.">{stage === "busy" ? "Checking…" : "Check tone"}</button>{/if}
   </div>
   <span class="sr-only" role="status" aria-live="polite">{live}</span>
 
@@ -146,7 +162,22 @@
   {:else if canRestore}
     <p class="rs"><button type="button" class="btn ghost sm" onclick={restore}>Restore my version</button></p>
   {/if}
+  {#if phone.on && stage === "idle" && (canRestore || stale)}
+    <p class="rs"><button type="button" class="btn ghost sm" onclick={begin}>Check tone again</button></p>
+  {/if}
+{/snippet}
+
+{#if !phone.on}
+<div class="tone" role="group" aria-label="Tone check">
+{@render toneBody()}
 </div>
+{:else if sheet}
+<BottomSheet title="Tone" onclose={closeSheet}>
+<div class="tone ph" role="group" aria-label="Tone check">
+{@render toneBody()}
+</div>
+</BottomSheet>
+{/if}
 
 {#if stage === "confirm" && profile}
   <Modal title="Check tone with {profile.name}" onclose={cancel} width={500}>
@@ -197,5 +228,7 @@
   .btns { display: inline-flex; gap: 6px; }
   .notice { margin: 0 0 8px; line-height: 1.5; }
   .warn { border: 1px solid var(--line); border-left: 2px solid var(--signal); border-radius: var(--radius); padding: 6px 10px; margin: 0 0 8px; }
+  .tone.ph { border-top: 0; padding: 4px 0; font-size: 0.9rem; }
+  .tone.ph :global(.btn.sm) { min-height: 44px; }
   .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 </style>

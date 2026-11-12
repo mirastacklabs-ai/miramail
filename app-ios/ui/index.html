@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MiraMail iOS spike</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#111; --mut:#666; --line:#ddd; --acc:#0a7; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --mut:#999; --line:#333; } }
+  body { margin:0; padding: max(16px, env(safe-area-inset-top)) 16px 24px; background:var(--bg); color:var(--fg); font:16px -apple-system, system-ui, sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px } p.s { color:var(--mut); margin:0 0 14px; font-size:13px }
+  input { width:100%; box-sizing:border-box; padding:12px; margin:0 0 10px; font-size:16px; border:1px solid var(--line); border-radius:10px; background:transparent; color:var(--fg) }
+  button { padding:11px 14px; margin:0 8px 8px 0; font-size:15px; border:0; border-radius:10px; background:var(--acc); color:#fff }
+  button.g { background:transparent; color:var(--fg); border:1px solid var(--line) }
+  pre { white-space:pre-wrap; word-break:break-word; font-size:12px; border:1px solid var(--line); border-radius:10px; padding:10px; min-height:40px }
+  .row { border-bottom:1px solid var(--line); padding:8px 0 } .row b { font-weight:600 } .row i { color:var(--mut); font-style:normal; font-size:13px }
+</style>
+</head>
+<body>
+<h1>MiraMail iOS spike</h1>
+<p class="s">Feasibility only. Nothing here is the product.</p>
+<input id="email" type="email" autocapitalize="none" autocorrect="off" placeholder="Email">
+<input id="pw" type="password" placeholder="Password">
+<button id="go">Sign in, list Inbox</button>
+<div>
+  <button class="g" id="det">Offline detect</button>
+  <button class="g" id="imap">Offline IMAP</button>
+  <button class="g" id="kc">Keychain test</button>
+  <button class="g" id="notif">Allow notifications</button>
+  <button class="g" id="sched">Schedule refresh</button>
+  <button class="g" id="fire">Fire check now</button>
+  <button class="g" id="stat">BG status</button>
+  <button class="g" id="log">Log</button>
+</div>
+<pre id="out">ready</pre>
+<div id="rows"></div>
+<script>
+  const inv = (c, a) => window.__TAURI__.core.invoke(c, a);
+  const out = document.getElementById('out');
+  const show = (x) => { out.textContent = typeof x === 'string' ? x : JSON.stringify(x, null, 2); };
+  const run = (id, fn) => document.getElementById(id).addEventListener('click', async () => {
+    show('...'); try { show(await fn()); } catch (e) { show('ERR: ' + (e && e.message || e)); }
+  });
+  run('det', () => inv('offline_detect'));
+  run('imap', () => inv('offline_imap'));
+  run('kc', () => inv('keychain_selftest'));
+  run('log', () => inv('read_log'));
+  run('notif', () => inv('plugin:bgrefresh|request_notifications'));
+  run('sched', () => inv('plugin:bgrefresh|schedule'));
+  run('fire', () => inv('plugin:bgrefresh|simulate_fire'));
+  run('stat', () => inv('plugin:bgrefresh|status'));
+  run('go', async () => {
+    const r = await inv('login_and_list', { email: document.getElementById('email').value, password: document.getElementById('pw').value });
+    const box = document.getElementById('rows'); box.textContent = '';
+    for (const m of r.rows) {
+      const d = document.createElement('div'); d.className = 'row';
+      const b = document.createElement('b'); b.textContent = (m.unread ? '* ' : '') + m.subject;
+      const i = document.createElement('i'); i.textContent = ' ' + m.from;
+      d.append(b, document.createElement('br'), i); box.append(d);
+    }
+    return { provider: r.provider, imap: r.imap_host, server_total: r.total, listed: r.rows.length };
+  });
+</script>
+</body>
+</html>

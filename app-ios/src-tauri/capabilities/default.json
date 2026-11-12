@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "Spike: core IPC + the bgrefresh plugin",
+  "windows": ["main"],
+  "permissions": ["core:default", "bgrefresh:default"]
+}
