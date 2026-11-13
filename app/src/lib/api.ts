@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
-  AccountInfo, Advanced, AttachmentData, CalEvent, CalPreset, CaldavSuggestion, ReusableAccount, CalendarInfo, ConnState, Occurrence, RespondStatus, ZoomMeeting, ZoomStatus, FlagName, Folder, FolderRole, MessageBody,
+  AccountInfo, Advanced, AttachmentData, CalEvent, CalPreset, CaldavSuggestion, ReusableAccount, CalendarInfo, ConnState, Occurrence, RespondStatus, ZoomMeeting, ZoomStatus, FlagName, Folder, FolderRole, MessageBody, MessageAnalysis,
   LoadOlderResult, MessageSummary, ComposerData, Signature, SigDefaults, Identity, AddrSuggestion, NewMailEvent, Outgoing, StatusEvent, SyncReport, SyncSettings, SyncedEvent, LiveEvent, LiveStatus, DraftRec,
   OutboxItem, OutboxRestored, OutboxChanged, MirrorStatus,
 } from "./types";
@@ -38,7 +38,12 @@ export const api = {
   getMessage: (account: string, folder: string, uid: number, allowRemoteImages: boolean, skipTrackers = true, markSeen = true) =>
     call<MessageBody>("get_message", { account, folder, uid, allowRemoteImages, skipTrackers, markSeen }),
   /** Local, read-only warning-sign check for a cached message (no network). */
-  safetyReport: (account: string, folder: string, uid: number) => call<SafetyReport>("safety_report", { account, folder, uid }),
+  /** Timing line for the device log (durations only, never content). Fire-and-forget. */
+  /** `uidvalidity`: the shown message's; the backend refuses when the cached message has another (it is not the same message). */
+  messageAnalysis: (account: string, folder: string, uid: number, allowRemoteImages: boolean, skipTrackers = true, uidvalidity?: number) =>
+    call<MessageAnalysis>("message_analysis", { account, folder, uid, allowRemoteImages, skipTrackers, uidvalidity }),
+  perfLog: (event: string, ms: number) => { void call<void>("perf_log", { event, ms: Math.max(0, Math.round(ms)) }).catch(() => {}); },
+  safetyReport: (account: string, folder: string, uid: number, uidvalidity?: number) => call<SafetyReport>("safety_report", { account, folder, uid, uidvalidity }),
   getAttachment: (account: string, folder: string, uid: number, id: string, uidvalidity?: number) =>
     call<AttachmentData>("get_attachment", { account, folder, uid, id, uidvalidity }),
   setFlag: (account: string, folder: string, uid: number, flag: FlagName, value: boolean) =>

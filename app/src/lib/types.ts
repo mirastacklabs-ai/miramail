@@ -22,11 +22,13 @@ export interface ImageInfo {
 }
 export interface MessageBody {
   summary: MessageSummary; text: string | null; html: string | null;
-  blockedRemoteCount: number; images: ImageInfo[]; attachments: Attachment[]; cc: Address[];
+  blockedRemoteCount: number; attachments: Attachment[]; cc: Address[];
   /** Reply-To mailboxes (empty when absent). */
   replyTo: Address[]; references: string | null;
-  invite: Invite | null;
 }
+/** Second step of opening a message (`message_analysis`): tracker analysis, invite and, when images are allowed with trackers
+ * skipped, the HTML re-rendered with the tracker deny-set (null otherwise). */
+export interface MessageAnalysis { images: ImageInfo[]; invite: Invite | null; html: string | null; blockedRemoteCount: number }
 export interface Outgoing {
   to: string[]; cc: string[]; bcc: string[]; subject: string; text: string;
   inReplyTo: { messageId: string; references: string | null } | null;
@@ -43,7 +45,7 @@ export type ConnState = "connected" | "offline" | "reconnecting";
 export interface NewMailEvent { account: string; folder: string }
 export interface StatusEvent { account: string; state: ConnState }
 export interface SyncedEvent { account: string; folders: string[] }
-export interface SyncSettings { foldersPerCycle: number; intervalSeconds: number; maxLiveFolders: number; initialSyncMessages: number }
+export interface SyncSettings { foldersPerCycle: number; intervalSeconds: number; maxLiveFolders: number; initialSyncMessages: number; prefetch: boolean }
 export type LiveState = "connecting" | "live" | "polling" | "error" | "off";
 export interface LiveStatus { state: LiveState; message?: string }
 export interface LiveEvent { account: string; folder: string; state: LiveState; message?: string }

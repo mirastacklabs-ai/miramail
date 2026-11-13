@@ -48,6 +48,8 @@ export const platformApi = {
   widgetMenu: (): Promise<void> => (isTauri ? invoke("widget_menu") : Promise.resolve()),
   takePendingMailto: (): Promise<MailtoDraft[]> => (isTauri ? invoke("take_pending_mailto") : Promise.resolve([])),
   notifyTest: (): Promise<void> => (isTauri ? invoke("notify_test") : Promise.resolve()),
+  /** iPhone: the message a tapped notification announced (returned once), else null. Always null on a Mac. */
+  takeNotificationTap: (): Promise<OpenMessage | null> => (isTauri ? invoke<OpenMessage | null>("notification_tap") : Promise.resolve(null)),
   /** Build/runtime facts that decide which settings are offered (sandboxed App Store build, launch-at-login support). */
   platformInfo: (): Promise<{ sandboxed: boolean; launchAtLogin: boolean; notifications: boolean }> =>
     isTauri ? invoke("platform_info") : Promise.resolve({ sandboxed: false, launchAtLogin: true, notifications: true }),

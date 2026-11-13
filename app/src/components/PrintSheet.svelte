@@ -8,6 +8,7 @@
   import { orgApi } from "../lib/orgapi";
   import { isTauri } from "../lib/api";
   import { addrFull, buildSrcdoc, fullDate } from "../lib/util";
+  import { holdHtml } from "../lib/linkgate";
 
   let { plain = false }: { plain?: boolean } = $props();
   let active = $state(false);
@@ -16,7 +17,8 @@
   let height = $state(0);
   const b = $derived(app.body);
   const useHtml = $derived(!!b?.html && !plain);
-  const srcdoc = $derived(b?.html ? buildSrcdoc(b.html, false, "body{margin:0;padding:0;font:13px/1.45 -apple-system,system-ui,sans-serif;overflow-wrap:anywhere}") : "");
+  // Links stay inert on paper and in this frame (held as in the Reader, never released here).
+  const srcdoc = $derived(b?.html ? buildSrcdoc(b.html, false, "body{margin:0;padding:0;font:13px/1.45 -apple-system,system-ui,sans-serif;overflow-wrap:anywhere}", "", (h) => holdHtml(h).html) : "");
 
   $effect(() => {
     const n = org.printing;

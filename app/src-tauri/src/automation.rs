@@ -1,7 +1,8 @@
 //! Local automation (AI chat P4): rules and the opt-in template auto-reply. **No model and no AI endpoint are
 //! involved here**: this file never names the AI HTTP client, the chat engine or the providers (a test scans
 //! it). Automation runs ONLY while MiraMail is open; the UI says so and suggests the provider's own vacation
-//! responder for the rest of the time.
+//! responder for the rest of the time. On iPhone "open" means the user is in front of it (presence.rs): nothing
+//! here runs during a background refresh; that mail is handled when the user is back.
 //!
 //! * Triggered after a folder was synced (INBOX watcher, live folders, background sync, manual sync) and once
 //!   shortly after launch. One pass per account at a time.
@@ -457,10 +458,19 @@ fn emit_changed(app: &AppHandle, affected: &[(String, String)]) {
 
 /// Called after a folder of `account` was synced and got new mail. Runs in the background; a failure only
 /// means "nothing ran this time".
+///
+/// iPhone: does nothing while the user is away (presence.rs). The rule and auto-reply cursors then stay where they
+/// are, so the next pass once the user is back (`start_catch_up_pass`, or the launch pass) handles that mail, once.
 pub fn notify(app: &AppHandle, account: &str, folder: &str) {
+    if !crate::presence::user_present() {
+        return;
+    }
     let (app, account, folder) = (app.clone(), account.to_string(), folder.to_string());
     tauri::async_runtime::spawn(async move {
         let Some(auto) = app.try_state::<Automation>() else { return };
+        if !crate::presence::user_present() {
+            return;
+        }
         if let Ok(rep) = auto.process_new_mail(&account, &folder).await {
             emit_changed(&app, &rep.affected);
             if !rep.rule_runs.is_empty() {
@@ -475,6 +485,9 @@ pub fn notify(app: &AppHandle, account: &str, folder: &str) {
 
 /// Shortly after launch: for every account with something enabled, sync the Inbox once (mail that arrived while
 /// MiraMail was closed) and run the pass. Talks only to the user's own mail server.
+///
+/// iPhone: starts only once the user is present (lib.rs) and stops if they leave; whatever it skipped is picked up by
+/// the catch-up pass when they are back (the cursors did not move).
 pub fn start_launch_pass(app: &AppHandle, accounts: Vec<String>) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -482,6 +495,9 @@ pub fn start_launch_pass(app: &AppHandle, accounts: Vec<String>) {
         let Some(auto) = app.try_state::<Automation>() else { return };
         let _ = lock(&auto.store).prune_rule_runs(system_now() - RUN_KEEP_SECS);
         for account in accounts {
+            if !crate::presence::user_present() {
+                return;
+            }
             if !auto.has_work(&account) {
                 continue;
             }
@@ -489,6 +505,25 @@ pub fn start_launch_pass(app: &AppHandle, accounts: Vec<String>) {
             if let Ok(mut conn) = st.connect(&account).await {
                 let _ = conn.client.sync_folder(&st.storage, &account, "INBOX", st.initial_sync_limit()).await;
                 conn.close().await;
+            }
+            for folder in auto.launch_folders(&account) {
+                notify(&app, &account, &folder);
+            }
+        }
+    });
+}
+
+/// iPhone, the user is back after being away: run the pass over the Inbox and the folders rules name, for mail that
+/// arrived meanwhile (stored by the background check, or synced while the watchers were stopping). No extra sync: the
+/// cache is read, and the watchers that just restarted / the page's own sync bring in anything newer (and call
+/// [`notify`] again). The rule and auto-reply cursors make a repeat a no-op, so nothing is handled twice.
+pub fn start_catch_up_pass(app: &AppHandle, accounts: Vec<String>) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let Some(auto) = app.try_state::<Automation>() else { return };
+        for account in accounts {
+            if !auto.has_work(&account) {
+                continue;
             }
             for folder in auto.launch_folders(&account) {
                 notify(&app, &account, &folder);

@@ -4,7 +4,8 @@
   import { fmtSpan, localTz, occSpan } from "../lib/caldate";
   import type { Invite, RespondStatus } from "../lib/types";
 
-  let { invite, uid, folder }: { invite: Invite; uid: number; folder: string } = $props();
+  // `account` is the message's own account (not whichever account is selected when a button is pressed).
+  let { invite, account, uid, folder }: { invite: Invite; account: string; uid: number; folder: string } = $props();
   let busy = $state<string>("");
   let trust = $state(false);
   const ev = $derived(invite.event);
@@ -15,18 +16,19 @@
   const guests = $derived(ev.attendees.length);
   const STATUS: Record<string, string> = { accepted: "Accepted", tentative: "Tentative", declined: "Declined", "needs-action": "Awaiting your reply" };
 
-  function patch(p: Partial<Invite>) { if (app.body?.invite) Object.assign(app.body.invite, p); }
+  // Only while this card's invite is still the one on screen (the user may have opened another message meanwhile).
+  function patch(p: Partial<Invite>) { if (app.analysis?.invite && app.analysis.invite === invite) Object.assign(app.analysis.invite, p); }
   async function respond(s: RespondStatus) {
-    if (!app.account) return;
+    if (!account) return;
     busy = s;
-    try { await api.calRespondInvite(app.account, folder, uid, invite.attachmentId, s, trust); patch({ myStatus: s, alreadyInCalendar: s !== "declined" || invite.alreadyInCalendar }); app.notify(`Replied: ${STATUS[s]}`); }
+    try { await api.calRespondInvite(account, folder, uid, invite.attachmentId, s, trust); patch({ myStatus: s, alreadyInCalendar: s !== "declined" || invite.alreadyInCalendar }); app.notify(`Replied: ${STATUS[s]}`); }
     catch (e) { app.fail(e); }
     busy = "";
   }
   async function add() {
-    if (!app.account) return;
+    if (!account) return;
     busy = "add";
-    try { await api.calImportInvite(app.account, folder, uid, invite.attachmentId, trust); patch({ alreadyInCalendar: true }); app.notify("Added to calendar"); }
+    try { await api.calImportInvite(account, folder, uid, invite.attachmentId, trust); patch({ alreadyInCalendar: true }); app.notify("Added to calendar"); }
     catch (e) { app.fail(e); }
     busy = "";
   }

@@ -35,7 +35,11 @@ pub fn changed(app: &AppHandle) {
 }
 
 /// One background CalDAV sync pass. Emits `cal://changed` when a sync was attempted (state/errors may have changed).
+/// iPhone: skipped while the user is away (presence.rs); the next 10-minute tick after they are back syncs.
 pub async fn sync_tick(app: &AppHandle) {
+    if !crate::presence::user_present() {
+        return;
+    }
     let st = app.state::<CalState>();
     if !cal_logic::has_caldav(&st) {
         return;

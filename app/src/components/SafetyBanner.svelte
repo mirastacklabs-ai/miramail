@@ -1,30 +1,19 @@
 <script lang="ts">
-  import { api } from "../lib/api";
   import { app } from "../lib/state.svelte";
-  import { addDismissed, allReasons, dismissKey, headline, loadDismissed, needsBanner, NONE_FOUND_TEXT, PRIVACY_NOTE, reasonTitle, removeDismissed, storeDismissed, topReasons, type SafetyReport } from "../lib/safety";
+  import { addDismissed, allReasons, dismissKey, headline, loadDismissed, needsBanner, NONE_FOUND_TEXT, PRIVACY_NOTE, reasonTitle, removeDismissed, storeDismissed, topReasons } from "../lib/safety";
 
   // Warning signs found by checks that run on this Mac (no network). Plain text only: every string is rendered as
   // text by Svelte, never as HTML. "This is fine" only hides the notice for this message; it is stored in this
   // app's local storage, never sent anywhere, and never changes the message on the server.
+  // The report is fetched by the app state when the message opens (lib/state.svelte.ts `runSafety`), because the
+  // Reader's links wait for it too (lib/linkgate.ts).
   const m = $derived(app.body?.summary);
   const key = $derived(m ? dismissKey(m.account, m.folder, m.uidvalidity, m.uid) : "");
-  let report = $state<SafetyReport | null>(null);
+  const report = $derived(m ? app.safety : null);
+  const pending = $derived(!!m && app.checkSafety === "pending");
   let fine = $state<string[]>(loadDismissed());
   let open = $state(false);
-  let seq = 0;
-
-  $effect(() => {
-    const k = key;
-    const s = m;
-    report = null;
-    open = false;
-    if (!s) return;
-    const mine = ++seq;
-    api.safetyReport(s.account, s.folder, s.uid).then(
-      (r) => { if (mine === seq && k === key) report = r; },
-      () => { /* no body cached or backend error: show nothing rather than a guess */ },
-    );
-  });
+  $effect(() => { void key; open = false; });
 
   const dismissed = $derived(!!key && fine.includes(key));
   const top = $derived(report ? topReasons(report) : []);
@@ -33,7 +22,9 @@
   function undo() { fine = removeDismissed(fine, key); storeDismissed(fine); }
 </script>
 
-{#if report}
+{#if pending && !report}
+  <p class="calm busy" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span>Checking links and sender…</p>
+{:else if report}
   {#if needsBanner(report)}
     {#if dismissed}
       <p class="note" role="status">You marked this message as fine. <button class="lnk" onclick={undo}>Show the warning again</button></p>
@@ -88,5 +79,9 @@
   .small { font-size: 0.8333rem; line-height: 1.5; margin: 8px 0 0; }
   .dim { color: var(--muted); }
   .calm, .note { margin: 0; font-size: 0.8333rem; color: var(--muted); }
+  .busy { display: flex; align-items: center; gap: 8px; }
+  .spin { width: 12px; height: 12px; flex: none; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: rot .8s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
   .lnk { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
 </style>

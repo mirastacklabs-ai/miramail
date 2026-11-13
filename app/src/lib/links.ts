@@ -5,6 +5,8 @@ import { linkAction } from "./util";
 import { phone } from "./phone.svelte";
 
 let asking = false;
+/** A mail://link this soon after opening a message may come from the frame that was just replaced. */
+export const STALE_LINK_MS = 300;
 
 /** "Open link?" confirm showing the real address, then the system browser. A second request while the dialog is open is ignored (no stacking). */
 export async function openLink(url: string): Promise<void> {
@@ -24,6 +26,9 @@ export async function openLink(url: string): Promise<void> {
 
 /** A link the backend cancelled in the message frame (see linknav.rs): re-validate, then confirm / compose. */
 export function handleMailLink(url: string): void {
+  // Defence in depth: the frame's links have no href until the shown message's checks finished (lib/linkgate.ts). The
+  // event cannot say which frame sent it, so one arriving just after an open (from the previous frame) is ignored too.
+  if (!app.readyKey || performance.now() - app.openT0 < STALE_LINK_MS) return;
   const act = linkAction(url);
   if (act.kind === "web") void openLink(act.url);
   else if (act.kind === "mail") workspace.openCompose({ to: act.to, cc: [], bcc: [], subject: act.subject, text: "", inReplyTo: null });

@@ -10,7 +10,7 @@ use base64::Engine as _;
 use mailcore::{
     attachment_bytes, imap::find_role, parse_message, render_html_with, AccountConfig, FlagChange, Folder, FolderRole,
 };
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -133,6 +133,13 @@ pub async fn remove_account(
 #[tauri::command]
 pub async fn list_folders(state: State<'_, AppState>, account: String) -> CmdResult<Vec<WireFolder>> {
     let cached = state.storage.list_folders(&account).map_err(err)?;
+    // iPhone, the user is away: the cached list only (no LIST, nothing written); the page asks again when they are back.
+    if !crate::presence::user_present() {
+        if cached.is_empty() {
+            return Err(crate::presence::DEFERRED.into());
+        }
+        return Ok(cached.iter().map(WireFolder::from).collect());
+    }
     let fresh = match state.connect(&account).await {
         Ok(mut conn) => {
             let r = conn.client.list_folders().await;
@@ -156,6 +163,7 @@ pub async fn list_folders(state: State<'_, AppState>, account: String) -> CmdRes
 /// Unread count per folder (IMAP STATUS UNSEEN). Used for the sidebar new-mail dots.
 #[tauri::command]
 pub async fn unread_counts(app: AppHandle, state: State<'_, AppState>, account: String) -> CmdResult<std::collections::HashMap<String, u32>> {
+    crate::presence::require()?; // iPhone: no STATUS round while the user is away
     let folders = state.storage.list_folders(&account).map_err(err)?;
     let mut conn = state.connect(&account).await?;
     let r = conn.client.unseen_counts(&folders).await;
@@ -168,6 +176,7 @@ pub async fn unread_counts(app: AppHandle, state: State<'_, AppState>, account: 
 
 #[tauri::command]
 pub async fn sync_folder(app: AppHandle, state: State<'_, AppState>, account: String, folder: String) -> CmdResult<WireSyncReport> {
+    crate::presence::require()?; // iPhone: the background check alone reads mail while the user is away
     let mut conn = state.connect(&account).await?;
     let r = conn.client.sync_folder(&state.storage, &account, &folder, state.initial_sync_limit()).await;
     conn.close().await;
@@ -252,17 +261,49 @@ pub(crate) async fn raw_message(
     c.client.get_body(&state.storage, account, folder, uid).await.map_err(err)
 }
 
-async fn close_opt(conn: Option<crate::state::Conn>) {
-    if let Some(c) = conn {
-        c.close().await;
+/// Raw message for the Reader (body, attachments): the offline cache, a recent Reader fetch, else the account's
+/// interactive lane, so a user-initiated open never queues behind background syncs.
+pub(crate) async fn reader_raw(state: &AppState, account: &str, folder: &str, uid: u32) -> CmdResult<std::sync::Arc<[u8]>> {
+    Ok(reader_raw_src(state, account, folder, uid).await?.0)
+}
+
+/// [`reader_raw`] plus whether it was available locally (`true`) or fetched from the server.
+async fn reader_raw_src(state: &AppState, account: &str, folder: &str, uid: u32) -> CmdResult<(std::sync::Arc<[u8]>, bool)> {
+    if let Some(raw) = state.body_for(account, folder, uid)? {
+        return Ok((raw, true));
     }
+    let mut ic = state.interactive(account).await?;
+    let r = ic.client.get_body(&state.storage, account, folder, uid).await;
+    let k = ic.client.timings;
+    crate::safety_cmds::perf::log(&format!(
+        "perf: get_message fetch: lane=interactive reused={} select={}ms fetch={}ms bytes={} cache_write={}ms",
+        ic.reused, k.select_ms, k.fetch_ms, k.fetched_bytes, k.store_ms
+    ));
+    // The session stays warm after a clean answer ("no such message" is one); any other error closes it.
+    let keep = matches!(&r, Ok(_) | Err(mailcore::Error::NotFound(_)));
+    let raw: std::sync::Arc<[u8]> = match r {
+        Ok(raw) => raw.into(),
+        Err(e) => {
+            ic.finish(false);
+            return Err(err(e));
+        }
+    };
+    // Kept in memory only when the offline cache did not store it (cache policy); remembered while the lane is still
+    // held, so an account removal or the user leaving in between is seen (state.rs `keep_body`).
+    if let Ok(Some(m)) = state.storage.get_message(account, folder, uid) {
+        if !m.has_body {
+            state.remember_body(&ic, account, folder, uid, m.uidvalidity, raw.clone());
+        }
+    }
+    ic.finish(keep);
+    Ok((raw, false))
 }
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // Tauri-injected State params + flat wire contract
 pub async fn get_message(
+    app: AppHandle,
     state: State<'_, AppState>,
-    cal: State<'_, crate::cal_state::CalState>,
     account: String,
     folder: String,
     uid: u32,
@@ -270,64 +311,47 @@ pub async fn get_message(
     skip_trackers: Option<bool>,
     mark_seen: Option<bool>,
 ) -> CmdResult<MessageBody> {
-    let mut conn = None;
-    let raw = raw_message(&state, &mut conn, &account, &folder, uid).await;
-    let raw = match raw {
-        Ok(r) => r,
-        Err(e) => {
-            close_opt(conn).await;
-            return Err(e);
-        }
-    };
+    let t0 = std::time::Instant::now();
+    let (raw, cached) = reader_raw_src(&state, &account, &folder, uid).await?;
+    let t_raw = t0.elapsed();
 
-    // Mark seen (best effort: offline reading must still work). `mark_seen = Some(false)` is the Preferences "never / after N s" case.
-    if let Some(sum) = state.storage.get_message(&account, &folder, uid).map_err(err)? {
-        if !sum.flags.seen && mark_seen != Some(false) {
-            if conn.is_none() {
-                conn = state.connect(&account).await.ok();
-            }
-            if let Some(c) = conn.as_mut() {
-                if c.client.set_flag(&folder, uid, Some(sum.uidvalidity), FlagChange::Seen(true)).await.is_ok() {
-                    let mut f = sum.flags;
-                    f.seen = true;
-                    let _ = state.storage.update_flags(&account, &folder, uid, f);
-                }
-            }
-        }
+    let summary = state.storage.get_message(&account, &folder, uid).map_err(err)?.ok_or_else(|| "Message not found. Refresh the folder.".to_string())?;
+
+    // Body first: parse + render only. Remote images stay blocked unless the user/sender rule allowed them AND trackers
+    // are not being skipped; when trackers must be skipped, `message_analysis` computes the deny-set and re-renders, so
+    // a tracker is never requested before it is known. CPU work: off the async worker.
+    let render_allow = allow_remote_images && !skip_trackers.unwrap_or(true);
+    let (parsed, rendered, t_parse, t_render) = tauri::async_runtime::spawn_blocking(move || -> CmdResult<_> {
+        let tp = std::time::Instant::now();
+        let parsed = parse_message(&raw).map_err(err)?;
+        let t_parse = tp.elapsed();
+        let tr = std::time::Instant::now();
+        let rendered = render_html_with(&raw, render_allow, &Default::default()).map_err(err)?;
+        Ok((parsed, rendered, t_parse, tr.elapsed()))
+    })
+    .await
+    .map_err(|e| format!("reader stopped: {e}"))??;
+
+    // Mark seen only now that the message parsed and rendered, and AFTER the body is returned (best effort, offline
+    // reading must still work): the reader never waits on a network round trip. `mark_seen = Some(false)` is the
+    // Preferences "never / after N s" case. The UI already shows the message as read when it asked for this; if the
+    // mark is skipped or fails, `mail://synced` makes it reload that row and the unread counts from the cache (still
+    // unread), so no false "read" state is left behind.
+    let defer_seen = !summary.flags.seen && mark_seen != Some(false);
+    if defer_seen {
+        spawn_mark_seen(app, account.clone(), folder.clone(), uid, summary.uidvalidity);
     }
-    close_opt(conn).await;
 
-    let summary = state
-        .storage
-        .get_message(&account, &folder, uid)
-        .map_err(err)?
-        .ok_or_else(|| "Message not found. Refresh the folder.".to_string())?;
-    let parsed = parse_message(&raw).map_err(err)?;
-    // Static, advisory tracker analysis of the RAW html (independent of what gets loaded).
-    let mut recipients: Vec<String> = vec![account.clone()];
-    recipients.extend(parsed.headers.to.iter().chain(parsed.headers.cc.iter()).map(|a| a.address.clone()));
-    let sender_domain = parsed.headers.from.first().and_then(|a| a.address.rsplit_once('@').map(|(_, d)| d.to_string()));
-    let images: Vec<WireImage> = parsed
-        .html
-        .as_deref()
-        .map(|h| mailcore::analyze_remote_images_from(h, &recipients, sender_domain.as_deref()))
-        .unwrap_or_default();
-    let deny = match (&parsed.html, allow_remote_images && skip_trackers.unwrap_or(true)) {
-        (Some(h), true) => mailcore::tracker_url_set(h, &recipients),
-        _ => Default::default(),
-    };
-    let rendered = render_html_with(&raw, allow_remote_images, &deny).map_err(err)?;
     let (html, blocked) = match rendered {
         Some(s) => (Some(s.html), s.blocked_remote_count),
         None => (None, 0),
     };
     let references = (!parsed.headers.references.is_empty()).then(|| parsed.headers.references.join(" "));
-    Ok(MessageBody {
+    let out = MessageBody {
         summary: WireSummary::from(&summary),
         text: parsed.text,
         html,
         blocked_remote_count: blocked,
-        images,
         attachments: parsed
             .attachments
             .iter()
@@ -337,8 +361,196 @@ pub async fn get_message(
         cc: parsed.headers.cc.iter().map(Address::from).collect(),
         reply_to: parsed.headers.reply_to.iter().map(Address::from).collect(),
         references,
-        invite: crate::cal_invite::invite_for_message(&cal, &raw, &parsed.attachments, &account),
+    };
+    crate::safety_cmds::perf::log(&format!(
+        "perf: get_message: cached={cached} raw={}ms parse={}ms render={}ms total={}ms seen={}",
+        t_raw.as_millis(),
+        t_parse.as_millis(),
+        t_render.as_millis(),
+        t0.elapsed().as_millis(),
+        if defer_seen { "deferred" } else { "none" }
+    ));
+    Ok(out)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SeenOutcome {
+    /// The server took \Seen.
+    Stored,
+    /// The server refused the STORE (or its SELECT).
+    Failed,
+    /// The user left (iPhone), or a user flag change / sync made it moot: nothing changed.
+    Skipped,
+    /// Nothing was sent: the background turn or the connection did not come in time. Retried once.
+    NotSent,
+    /// The budget ran out with the command in flight; the STORE may or may not have reached the server.
+    TimedOut,
+}
+
+impl SeenOutcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            SeenOutcome::Stored => "ok",
+            SeenOutcome::Failed => "failed",
+            SeenOutcome::Skipped => "skipped",
+            SeenOutcome::NotSent => "not_sent",
+            SeenOutcome::TimedOut => "timeout",
+        }
+    }
+}
+
+/// One mark-seen attempt: wait for the background turn ([`MARK_SEEN_TURN_BUDGET`]), then connect + SELECT + STORE on
+/// the interactive lane within [`MARK_SEEN_BUDGET`].
+async fn mark_seen_attempt(state: &AppState, acc: &str, fol: &str, uid: u32, validity: u32, k: &mut Option<mailcore::ImapTimings>, turn_ms: &mut u128) -> SeenOutcome {
+    if !crate::presence::user_present() {
+        return SeenOutcome::Skipped;
+    }
+    let tw = std::time::Instant::now();
+    let turn = tokio::time::timeout(MARK_SEEN_TURN_BUDGET, state.background_turn(acc)).await;
+    *turn_ms = tw.elapsed().as_millis();
+    let Ok(_turn) = turn else { return SeenOutcome::NotSent };
+    // The user may have left meanwhile: change nothing then.
+    if !crate::presence::user_present() {
+        return SeenOutcome::Skipped;
+    }
+    let mut sent = false;
+    let r = tokio::time::timeout(MARK_SEEN_BUDGET, async {
+        let Ok(mut ic) = state.interactive(acc).await else { return SeenOutcome::NotSent };
+        if !crate::presence::user_present() {
+            ic.finish(false);
+            return SeenOutcome::Skipped;
+        }
+        sent = true;
+        let r = ic.client.set_flag(fol, uid, Some(validity), FlagChange::Seen(true)).await;
+        *k = Some(ic.client.timings);
+        let ok = r.is_ok();
+        ic.finish(ok);
+        if ok { SeenOutcome::Stored } else { SeenOutcome::Failed }
     })
+    .await;
+    match r {
+        Ok(o) => o,
+        Err(_) if sent => SeenOutcome::TimedOut,
+        Err(_) => SeenOutcome::NotSent,
+    }
+}
+
+/// Deferred \Seen for a message just shown. Runs on the interactive session (warm, usually the same folder) while
+/// holding the background lane's turn, so a folder sync that read the flags before this STORE cannot write "unseen"
+/// back after it. The turn is taken first and the lane second (nothing takes them the other way round), so the
+/// next open is not held up while this waits for a sync. When nothing could be sent (busy background lane, no
+/// connection) it tries once more after [`MARK_SEEN_RETRY_AFTER`], unless the user changed a flag meanwhile.
+fn spawn_mark_seen(app: AppHandle, acc: String, fol: String, uid: u32, validity: u32) {
+    tauri::async_runtime::spawn(async move {
+        let t = std::time::Instant::now();
+        let state = app.state::<AppState>();
+        let epoch = state.flag_epoch();
+        let mut k = None;
+        let mut turn_ms = 0u128;
+        let mut outcome = mark_seen_attempt(&state, &acc, &fol, uid, validity, &mut k, &mut turn_ms).await;
+        let mut retried = false;
+        if outcome == SeenOutcome::NotSent {
+            tokio::time::sleep(MARK_SEEN_RETRY_AFTER).await;
+            let still_unread = matches!(state.storage.get_message(&acc, &fol, uid), Ok(Some(m)) if m.uidvalidity == validity && !m.flags.seen);
+            outcome = if state.flag_epoch() == epoch && still_unread {
+                retried = true;
+                mark_seen_attempt(&state, &acc, &fol, uid, validity, &mut k, &mut turn_ms).await
+            } else {
+                SeenOutcome::Skipped
+            };
+        }
+        // Outside every budget: once the server has taken \Seen the cache follows, and no timeout can cut in between.
+        // Re-read and set only `seen`, so a flag change made meanwhile (e.g. flagged) is not overwritten.
+        if outcome == SeenOutcome::Stored {
+            if let Ok(Some(cur)) = state.storage.get_message(&acc, &fol, uid) {
+                if cur.uidvalidity == validity && !cur.flags.seen {
+                    let mut f = cur.flags;
+                    f.seen = true;
+                    let _ = state.storage.update_flags(&acc, &fol, uid, f);
+                }
+            }
+        } else {
+            // Not marked (or unknown after a timeout): the UI reloads the row from the cache, which still says unread;
+            // the next sync of the folder brings the server's flags.
+            use tauri::Emitter;
+            let _ = app.emit("mail://synced", SyncedEvent { account: acc.clone(), folders: vec![fol.clone()] });
+        }
+        crate::safety_cmds::perf::log(&format!(
+            "perf: mark_seen: outcome={} retried={retried} lane=interactive turn_wait={turn_ms}ms select={}ms store={}ms took={}ms",
+            outcome.as_str(),
+            k.map_or(0, |k| k.select_ms),
+            k.map_or(0, |k| k.store_ms),
+            t.elapsed().as_millis()
+        ));
+    });
+}
+
+/// Budget of one mark-seen exchange (connect + select + store), after the background turn was obtained.
+const MARK_SEEN_BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
+/// How long a mark-seen waits for the background lane's turn (a long folder sync or export may hold it).
+const MARK_SEEN_TURN_BUDGET: std::time::Duration = std::time::Duration::from_secs(120);
+/// Pause before the single retry of a mark-seen that sent nothing.
+const MARK_SEEN_RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Second step of opening a message: tracker analysis of the remote images, the calendar invite and, when images are
+/// allowed with trackers skipped, the HTML re-rendered with the tracker deny-set. Local only: it reads the body
+/// `get_message` just cached (never the network), so it may also run while the iPhone user is away.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri-injected State params + flat wire contract
+pub async fn message_analysis(
+    state: State<'_, AppState>,
+    cal: State<'_, crate::cal_state::CalState>,
+    account: String,
+    folder: String,
+    uid: u32,
+    allow_remote_images: bool,
+    skip_trackers: Option<bool>,
+    uidvalidity: Option<u32>,
+) -> CmdResult<MessageAnalysis> {
+    let t0 = std::time::Instant::now();
+    // The page passes the shown message's UIDVALIDITY: a renumbered folder never lets this check another message.
+    check_original(&state, &account, &folder, uid, uidvalidity)?;
+    // Local first; a body that is neither cached nor in memory any more is fetched again over the interactive lane
+    // (only while the user is present), so its links never stay off for good.
+    let raw = reader_raw(&state, &account, &folder, uid).await?;
+    let skip = allow_remote_images && skip_trackers.unwrap_or(true);
+    let acc = account.clone();
+    let (raw, attachments, images, rendered) = tauri::async_runtime::spawn_blocking(move || -> CmdResult<_> {
+        let parsed = parse_message(&raw).map_err(err)?;
+        let mut recipients: Vec<String> = vec![acc];
+        recipients.extend(parsed.headers.to.iter().chain(parsed.headers.cc.iter()).map(|a| a.address.clone()));
+        let sender_domain = parsed.headers.from.first().and_then(|a| a.address.rsplit_once('@').map(|(_, d)| d.to_string()));
+        // Static, advisory analysis of the RAW html (independent of what gets loaded).
+        let images: Vec<WireImage> = parsed
+            .html
+            .as_deref()
+            .map(|h| mailcore::analyze_remote_images_from(h, &recipients, sender_domain.as_deref()))
+            .unwrap_or_default();
+        let rendered = match (&parsed.html, skip) {
+            (Some(h), true) => {
+                let deny = mailcore::tracker_url_set(h, &recipients);
+                render_html_with(&raw, true, &deny).map_err(err)?
+            }
+            _ => None,
+        };
+        Ok((raw, parsed.attachments, images, rendered))
+    })
+    .await
+    .map_err(|e| format!("analysis stopped: {e}"))??;
+    let (html, blocked) = match rendered {
+        Some(s) => (Some(s.html), s.blocked_remote_count),
+        None => (None, 0),
+    };
+    let invite = crate::cal_invite::invite_for_message(&cal, &raw, &attachments, &account);
+    let out = MessageAnalysis { images, invite, html, blocked_remote_count: blocked };
+    crate::safety_cmds::perf::log(&format!(
+        "perf: message_analysis took={}ms images={} bytes={} rerender={}",
+        t0.elapsed().as_millis(),
+        out.images.len(),
+        raw.len(),
+        out.html.is_some()
+    ));
+    Ok(out)
 }
 
 /// (name, mime, bytes) of one attachment.
@@ -351,10 +563,8 @@ async fn load_attachment(
     expected_validity: Option<u32>,
 ) -> CmdResult<(String, String, Vec<u8>)> {
     check_original(state, account, folder, uid, expected_validity)?;
-    let mut conn = None;
-    let raw = raw_message(state, &mut conn, account, folder, uid).await;
-    close_opt(conn).await;
-    let raw = raw?;
+    // User-initiated: the interactive lane (never behind background syncs).
+    let raw = reader_raw(state, account, folder, uid).await?;
     let parsed = parse_message(&raw).map_err(err)?;
     let info = parsed
         .attachments
@@ -407,6 +617,7 @@ pub async fn set_flag(
         "flagged" => FlagChange::Flagged(value),
         _ => return Err("Unsupported flag.".into()),
     };
+    state.note_flag_change(); // a pending mark-seen retry must not undo this
     let validity = state.storage.get_message(&account, &folder, uid).map_err(err)?.map(|m| m.uidvalidity);
     let mut conn = state.connect(&account).await?;
     let r = conn.client.set_flag(&folder, uid, validity, change).await;
@@ -496,12 +707,16 @@ pub fn get_sync_settings(state: State<'_, AppState>) -> SyncSettings {
 
 /// Validate, persist, then apply live to running loops.
 #[tauri::command]
-pub fn set_sync_settings(state: State<'_, AppState>, settings: SyncSettings) -> CmdResult<SyncSettings> {
+pub fn set_sync_settings(app: tauri::AppHandle, state: State<'_, AppState>, settings: SyncSettings) -> CmdResult<SyncSettings> {
     settings.validate()?;
     let prev = state.sync_cfg.send_replace(settings);
     if let Err(e) = state.persist_config() {
         state.sync_cfg.send_replace(prev);
         return Err(e);
+    }
+    // "Download new mail in advance" was just turned on: catch up now instead of at the next new mail.
+    if settings.prefetch && !prev.prefetch {
+        crate::prefetch::kick_all(&app);
     }
     Ok(settings)
 }
@@ -560,6 +775,45 @@ pub async fn set_folder_live(
 #[cfg(test)]
 mod load_older_tests {
     use super::*;
+
+    /// The Reader's checks pass the shown message's UIDVALIDITY: another one (folder renumbered) is refused, so a
+    /// check can never validate a different message; a body kept in memory needs the same UIDVALIDITY as well.
+    #[test]
+    fn checks_refuse_another_uidvalidity() {
+        use mailcore::{Flags, MessageSummary};
+        let st = AppState::new(std::sync::Arc::new(mailcore::Storage::open_in_memory().unwrap()), std::sync::Arc::new(mailcore::InMemorySecretStore::new()));
+        let acc = AccountConfig {
+            email: "a@x.org".into(),
+            imap: mailcore::ServerConfig { host: "i".into(), port: 993, tls: mailcore::Tls::Implicit },
+            smtp: mailcore::ServerConfig { host: "s".into(), port: 465, tls: mailcore::Tls::Implicit },
+            username: "a@x.org".into(),
+        };
+        st.storage.upsert_account(&acc).unwrap();
+        st.storage
+            .replace_folders("a@x.org", &[Folder { name: "INBOX".into(), delimiter: Some("/".into()), role: FolderRole::Inbox, selectable: true }])
+            .unwrap();
+        st.storage
+            .upsert_message(&MessageSummary {
+                account: "a@x.org".into(),
+                folder: "INBOX".into(),
+                uid: 5,
+                uidvalidity: 9,
+                message_id: None,
+                subject: String::new(),
+                from: String::new(),
+                to: String::new(),
+                date: 1,
+                flags: Flags::default(),
+                snippet: String::new(),
+                has_body: false,
+                size: 1,
+            })
+            .unwrap();
+        assert!(check_original(&st, "a@x.org", "INBOX", 5, Some(9)).is_ok());
+        assert_eq!(check_original(&st, "a@x.org", "INBOX", 5, Some(10)).unwrap_err(), ORIGINAL_GONE);
+        assert_eq!(check_original(&st, "a@x.org", "Archive", 5, Some(9)).unwrap_err(), ORIGINAL_GONE, "another folder's uid 5");
+        assert!(check_original(&st, "a@x.org", "INBOX", 5, None).is_ok(), "older callers without it");
+    }
 
     #[test]
     fn count_defaults_and_clamps() {

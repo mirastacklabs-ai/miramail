@@ -604,6 +604,12 @@ pub fn start(app: &AppHandle) {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         let ops = AppOps { app: app.clone() };
         loop {
+            // iPhone: no snooze returns (they move mail) while the user is away; overdue ones return on the first tick
+            // after they are back (presence.rs).
+            if !crate::presence::user_present() {
+                tokio::time::sleep(std::time::Duration::from_secs(TICK_SECS)).await;
+                continue;
+            }
             let pass = {
                 let st = app.state::<SnoozeState>();
                 run_due(&st.store, &ops, now_ms()).await

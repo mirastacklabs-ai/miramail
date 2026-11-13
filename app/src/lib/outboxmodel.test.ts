@@ -79,3 +79,10 @@ test("scheduled entries: described, never undoable, can be sent now / edited / d
   assert.equal(needsAttention([it]), 0, "a message waiting for its time is not an alarm");
   assert.match(describe({ ...it, state: "interrupted" }, 1), /scheduled for .*not running/);
 });
+
+test("a due send held because the user left says so (iPhone)", () => {
+  const it = { id: "1", account: "a", to: ["b@x.org"], subject: "s", state: "holding", error: null, dueAt: 1000, nextRetryAt: null, failures: 0, attachments: 0, createdAt: 0 } as const;
+  assert.equal(describe(it, 2000, true), "Will send when you reopen MiraMail");
+  assert.equal(describe(it, 2000, false), "Sending…");
+  assert.equal(describe(it, 500, true), "Sending in 1 s", "still inside the undo window: normal countdown");
+});

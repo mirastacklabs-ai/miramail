@@ -574,6 +574,7 @@ pub async fn bulk_flag(state: State<'_, AppState>, account: String, folder: Stri
         "flagged" => FlagChange::Flagged(value),
         _ => return Err("Unsupported flag.".into()),
     };
+    state.note_flag_change(); // a pending mark-seen retry must not undo this
     let validity = uids.first().and_then(|u| state.storage.get_message(&account, &folder, *u).ok().flatten()).map(|m| m.uidvalidity);
     let mut conn = state.connect(&account).await?;
     let r = conn.client.batch_flag(&folder, validity, &uids, change).await;
@@ -705,8 +706,9 @@ fn message_dkim_verified(state: &AppState, account: &str, folder: &str, uid: u32
 
 /// May "always load images" take effect for this very message? (The UI keeps images blocked when not.)
 #[tauri::command]
-pub fn sender_images_verified(state: State<'_, AppState>, account: String, folder: String, uid: u32) -> bool {
-    load_headers(&state, &account, &folder, uid).map(|h| message_dkim_verified(&state, &account, &folder, uid, &h)).unwrap_or(false)
+pub async fn sender_images_verified(state: State<'_, AppState>, account: String, folder: String, uid: u32) -> CmdResult<bool> {
+    // async: runs on the runtime, not the main thread (it parses the cached message every time a message opens).
+    Ok(load_headers(&state, &account, &folder, uid).map(|h| message_dkim_verified(&state, &account, &folder, uid, &h)).unwrap_or(false))
 }
 
 /// Options for a cached message, re-derived from its stored headers every time (the UI never supplies a target).
@@ -719,7 +721,7 @@ fn unsub_options(state: &AppState, account: &str, folder: &str, uid: u32) -> Cmd
 }
 
 #[tauri::command]
-pub fn unsubscribe_info(state: State<'_, AppState>, account: String, folder: String, uid: u32) -> CmdResult<Option<WireUnsub>> {
+pub async fn unsubscribe_info(state: State<'_, AppState>, account: String, folder: String, uid: u32) -> CmdResult<Option<WireUnsub>> {
     let o = unsub_options(&state, &account, &folder, uid)?;
     if o.mailto.is_none() && o.https.is_none() {
         return Ok(None);
@@ -951,12 +953,17 @@ pub fn print_page(window: tauri::WebviewWindow) -> CmdResult<()> {
 }
 
 /// Fill the v5 columns (attachment flag, unsubscribe headers) for mail cached before they existed, in the
-/// background, a few rows at a time.
+/// background, a few rows at a time. iPhone: paused while the user is away (presence.rs).
 pub fn start_backfill(storage: Arc<Storage>) {
-    std::thread::spawn(move || {
-        while matches!(storage.backfill_attachment_meta(100), Ok(n) if n > 0) {
-            std::thread::sleep(Duration::from_millis(40));
+    std::thread::spawn(move || loop {
+        if !crate::presence::user_present() {
+            std::thread::sleep(Duration::from_secs(2));
+            continue;
         }
+        if !matches!(storage.backfill_attachment_meta(100), Ok(n) if n > 0) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(40));
     });
 }
 

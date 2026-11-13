@@ -4,6 +4,7 @@
   import Select from "./Select.svelte";
   import DateTimeSelect from "./DateTimeSelect.svelte";
   import { api, errMsg } from "../lib/api";
+  import { fg } from "../lib/foreground";
   import { workspace, takeRestoredAtts, getComposeMem, setComposeMem, type ComposePayload } from "../lib/workspace.svelte";
   import { prefs } from "../lib/prefs.svelte";
   import { splitAddrs, validAddr } from "../lib/util";
@@ -232,6 +233,8 @@
   const GONE = "The original message is no longer available, so it was not attached.";
   const isGone = (e: unknown) => errMsg(e).includes("no longer available") || errMsg(e).includes("UIDVALIDITY");
   async function loadForward() {
+    // Fetches from the server: on iPhone only once the user is in front of the app (a restored pane may mount earlier).
+    await fg.whenPresent();
     const f = fwd;
     if (!f || hadFwdAtts) return;
     // Drafts saved before UIDVALIDITY was stored cannot prove the UID still names the same message: do not guess.
@@ -306,6 +309,7 @@
   let mirrorTimer: ReturnType<typeof setTimeout> | undefined, lastMirrored = "", mirrorGone = false;
   const hasContent = $derived(!!(to.trim() || cc.trim() || bcc.trim() || subject.trim() || text.trim()));
   async function mirrorNow(sig: string) {
+    await fg.whenPresent(); // iPhone: the server copy waits for the user to be in front of the app
     const acct = init.account;
     if (!acct || mirrorGone || sig === lastMirrored) return;
     const rich = mode === "rich" ? extractInlineImages(editor?.getHtml() ?? html).html : undefined; // the server draft carries no pictures or files

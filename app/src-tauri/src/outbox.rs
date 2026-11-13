@@ -595,15 +595,19 @@ pub fn start(app: &AppHandle) {
             {
                 let o = app.state::<Outbox>();
                 let wake = o.wake.notified();
-                // Send later: scheduled messages whose time came (app open) join the queue; stale ones ask the user.
-                for id in o.store.promote_scheduled(now_ms()).unwrap_or_default() {
-                    emit(&app, &id, "added");
-                }
-                let jobs = o.store.claim_due(now_ms()).unwrap_or_default();
-                for job in jobs {
-                    emit(&app, &job.id, "added");
-                    let a = app.clone();
-                    tauri::async_runtime::spawn(async move { send_job(a, job).await });
+                // iPhone: nothing is sent while the user is away (presence.rs). Due entries stay queued and go on the first
+                // tick after they are back (the usual late / stale rules apply, as when a Mac was closed).
+                if crate::presence::user_present() {
+                    // Send later: scheduled messages whose time came (app open) join the queue; stale ones ask the user.
+                    for id in o.store.promote_scheduled(now_ms()).unwrap_or_default() {
+                        emit(&app, &id, "added");
+                    }
+                    let jobs = o.store.claim_due(now_ms()).unwrap_or_default();
+                    for job in jobs {
+                        emit(&app, &job.id, "added");
+                        let a = app.clone();
+                        tauri::async_runtime::spawn(async move { send_job(a, job).await });
+                    }
                 }
                 tokio::select! { _ = tokio::time::sleep(std::time::Duration::from_millis(1000)) => {}, _ = wake => {} }
             }

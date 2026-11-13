@@ -27,14 +27,14 @@ pub struct PlatformInfo {
     pub sandboxed: bool,
     /// Launch at login can be offered (SMAppService, macOS 13+).
     pub launch_at_login: bool,
-    /// New-mail notifications are implemented on this platform (macOS only until iOS phase 3). The UI hides or
-    /// disables the toggle when false.
+    /// New-mail notifications are implemented on this platform (macOS and iPhone). The UI hides or disables the
+    /// toggle when false.
     pub notifications: bool,
 }
 
 #[tauri::command]
 pub fn platform_info() -> PlatformInfo {
-    PlatformInfo { sandboxed: crate::files::is_sandboxed(), launch_at_login: login::supported(), notifications: cfg!(target_os = "macos") }
+    PlatformInfo { sandboxed: crate::files::is_sandboxed(), launch_at_login: login::supported(), notifications: cfg!(any(target_os = "macos", target_os = "ios")) }
 }
 
 /// Open an http(s) or mailto URL in the default app via NSWorkspace. Rejects every other scheme.
@@ -130,18 +130,26 @@ pub mod login {
     pub use imp::{enabled, set, supported};
 }
 
-/// Local notifications through UNUserNotificationCenter. Needs a real app bundle: unbundled dev runs are a no-op error.
+/// Local notifications through UNUserNotificationCenter (macOS and iOS, the same code). Needs a real app bundle:
+/// unbundled dev runs are a no-op error. On iOS the notification-centre delegate (tap handling, no banner while the app
+/// is in front) lives in the Swift plugin (`plugins/bgrefresh`), on macOS in `Delegate` below.
 pub mod notifications {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     mod imp {
         use block2::RcBlock;
         use objc2::rc::Retained;
         use objc2::runtime::ProtocolObject;
-        use objc2::{define_class, msg_send, ClassType};
-        use objc2_foundation::{NSBundle, NSError, NSObject, NSObjectProtocol, NSString};
+        use objc2_foundation::{NSBundle, NSError, NSString};
         use objc2_user_notifications::*;
+
+        #[cfg(target_os = "macos")]
+        use objc2::{define_class, msg_send, ClassType};
+        #[cfg(target_os = "macos")]
+        use objc2_foundation::{NSObject, NSObjectProtocol};
+        #[cfg(target_os = "macos")]
         use std::sync::Once;
 
+        #[cfg(target_os = "macos")]
         define_class!(
             #[unsafe(super(NSObject))]
             #[name = "MiraMailNotificationDelegate"]
@@ -164,13 +172,16 @@ pub mod notifications {
             if NSBundle::mainBundle().bundleIdentifier().is_none() {
                 return Err("Notifications need the installed app.".into());
             }
-            static ONCE: Once = Once::new();
             let c = UNUserNotificationCenter::currentNotificationCenter();
-            ONCE.call_once(|| {
-                let d: Retained<Delegate> = unsafe { msg_send![Delegate::class(), new] };
-                c.setDelegate(Some(ProtocolObject::from_ref(&*d)));
-                std::mem::forget(d); // the centre keeps only a weak reference
-            });
+            #[cfg(target_os = "macos")]
+            {
+                static ONCE: Once = Once::new();
+                ONCE.call_once(|| {
+                    let d: Retained<Delegate> = unsafe { msg_send![Delegate::class(), new] };
+                    c.setDelegate(Some(ProtocolObject::from_ref(&*d)));
+                    std::mem::forget(d); // the centre keeps only a weak reference
+                });
+            }
             Ok(c)
         }
 
@@ -178,11 +189,23 @@ pub mod notifications {
         pub fn request_authorization(done: impl Fn(bool) + 'static) -> Result<(), String> {
             let c = center()?;
             let block = RcBlock::new(move |granted: objc2::runtime::Bool, _e: *mut NSError| done(granted.as_bool()));
-            c.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &block);
+            // iPhone also needs the badge right (the icon badge shows the Inbox unread count).
+            #[cfg(target_os = "ios")]
+            let opts = UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound | UNAuthorizationOptions::Badge;
+            #[cfg(not(target_os = "ios"))]
+            let opts = UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound;
+            c.requestAuthorizationWithOptions_completionHandler(opts, &block);
             Ok(())
         }
 
-        pub fn deliver(title: &str, body: &str, sound: bool) -> Result<(), String> {
+        /// `id`: the request identifier (iOS: "mm:<uid>:<account>" lets a tap open the message, "miramail-test..." shows a
+        /// banner while the app is open); `None` = a fresh anonymous one.
+        pub fn deliver(title: &str, body: &str, sound: bool, id: Option<&str>) -> Result<(), String> {
+            deliver_then(title, body, sound, id, None)
+        }
+
+        /// Like `deliver`; `done` runs when the system has accepted (or refused) the request.
+        pub fn deliver_then(title: &str, body: &str, sound: bool, id: Option<&str>, done: Option<Box<dyn Fn() + 'static>>) -> Result<(), String> {
             let c = center()?;
             let content = UNMutableNotificationContent::new();
             content.setTitle(&NSString::from_str(title));
@@ -191,25 +214,47 @@ pub mod notifications {
                 content.setSound(Some(&UNNotificationSound::defaultSound()));
             }
             static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let id = format!("miramail-{}", N.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+            let id = id.map(str::to_string).unwrap_or_else(|| format!("miramail-{}", N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
             let req = UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(&id), &content, None);
-            c.addNotificationRequest_withCompletionHandler(&req, None);
+            match done {
+                None => c.addNotificationRequest_withCompletionHandler(&req, None),
+                Some(d) => {
+                    let block = RcBlock::new(move |_e: *mut NSError| d());
+                    c.addNotificationRequest_withCompletionHandler(&req, Some(&block));
+                }
+            }
             Ok(())
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     mod imp {
         pub fn request_authorization(_: impl Fn(bool) + 'static) -> Result<(), String> { Err(super::UNSUPPORTED.into()) }
-        pub fn deliver(_: &str, _: &str, _: bool) -> Result<(), String> { Err(super::UNSUPPORTED.into()) }
+        pub fn deliver(_: &str, _: &str, _: bool, _: Option<&str>) -> Result<(), String> { Err(super::UNSUPPORTED.into()) }
+        pub fn deliver_then(_: &str, _: &str, _: bool, _: Option<&str>, _: Option<Box<dyn Fn() + 'static>>) -> Result<(), String> { Err(super::UNSUPPORTED.into()) }
     }
     pub use imp::deliver;
 
+    /// Post a notification and wait (up to 3 s) until the system has accepted it. The iPhone background check uses this
+    /// so the app is not suspended before the request reached the notification service.
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    pub async fn deliver_confirmed(title: &str, body: &str, sound: bool, id: Option<&str>) -> Result<(), String> {
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let tx = std::sync::Mutex::new(Some(tx));
+        imp::deliver_then(title, body, sound, id, Some(Box::new(move || {
+            if let Some(t) = tx.lock().ok().and_then(|mut t| t.take()) {
+                let _ = t.send(());
+            }
+        })))?;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(3), rx).await;
+        Ok(())
+    }
+
     /// Shown wherever a notification call is reached on a platform without an implementation.
-    #[cfg(not(target_os = "macos"))]
-    const UNSUPPORTED: &str = "Notifications aren't available on iPhone yet.";
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    const UNSUPPORTED: &str = "Notifications aren't available on this system.";
 
     /// Fire-and-forget permission request (called when the user turns notifications on). Returns an error where
-    /// notifications are not implemented (iOS until phase 3) instead of pretending it worked.
+    /// notifications are not implemented instead of pretending it worked.
     pub fn request_permission() -> Result<(), String> {
         imp::request_authorization(|_| {})
     }

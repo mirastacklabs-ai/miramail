@@ -46,10 +46,12 @@ export function extractLinks(html: string | null): { url: string; label: string 
   return out;
 }
 
-/** Wrap sanitised HTML in the CSP prefix mandated by docs/APP_API.md. */
-export function buildSrcdoc(html: string, allowRemote: boolean, baseCss = ""): string {
+/** Wrap sanitised HTML in the CSP prefix mandated by docs/APP_API.md. `prelude` (trusted, app-made CSS only, e.g. the
+ *  Reader's link-hold style from linkgate.ts) goes after the CSP and before the message; `transform` (the Reader's
+ *  link hold) rewrites the message HTML before it goes in. */
+export function buildSrcdoc(html: string, allowRemote: boolean, baseCss = "", prelude = "", transform?: (h: string) => string): string {
   const csp = `default-src 'none'; img-src data:${allowRemote ? " https:" : ""}; style-src 'unsafe-inline'`;
-  return `<meta http-equiv="Content-Security-Policy" content="${csp}"><style>html{background:#fff;color:#1c1c1c}${baseCss || "body{margin:0;padding:16px;font:14px/1.5 -apple-system,system-ui,sans-serif;overflow-wrap:anywhere}"}img{max-width:100%;height:auto}</style>${html}`;
+  return `<meta http-equiv="Content-Security-Policy" content="${csp}"><style>html{background:#fff;color:#1c1c1c}${baseCss || "body{margin:0;padding:16px;font:14px/1.5 -apple-system,system-ui,sans-serif;overflow-wrap:anywhere}"}img{max-width:100%;height:auto}</style>${prelude}${transform ? transform(html) : html}`;
 }
 
 export const reSubject = (s: string) => (/^\s*re\s*(?:\[\d+\]|\(\d+\))?\s*:/i.test(s) ? s.trim() : `Re: ${s.trim()}`.trim());

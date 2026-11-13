@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		083024749320ED6C0793C6F2 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BF669B53C1E99FE28C768030 /* WebKit.framework */; };
+		28D00F889C4203ADDFB015D4 /* tauri-plugin-mailcheck in Frameworks */ = {isa = PBXBuildFile; productRef = 4EB5F734AA45C553CAB0D69E /* tauri-plugin-mailcheck */; };
 		304193E7E3093D0481FE1330 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 06DCF0B926C554A237094B60 /* main.mm */; };
 		36695B86E8432539B4001C6E /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3C96DFBF470013B87E9FE713 /* UIKit.framework */; };
 		46980897FCD62261F34AEDE3 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = ED8C33EC099F6931C919231A /* libapp.a */; };
@@ -24,6 +25,7 @@
 /* Begin PBXFileReference section */
 		06DCF0B926C554A237094B60 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		093E0932909D4208FA6A8955 /* cal_sched.rs */ = {isa = PBXFileReference; path = cal_sched.rs; sourceTree = "<group>"; };
+		12B7A1D90F7FF3372B8AE838 /* bgcheck.rs */ = {isa = PBXFileReference; path = bgcheck.rs; sourceTree = "<group>"; };
 		14DC21E05BFFB95923E0C384 /* secrets_cache.rs */ = {isa = PBXFileReference; path = secrets_cache.rs; sourceTree = "<group>"; };
 		17701866580F219955E00E4D /* cal_state.rs */ = {isa = PBXFileReference; path = cal_state.rs; sourceTree = "<group>"; };
 		1A9A78C142A4DC49B2A9C880 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
@@ -57,6 +59,7 @@
 		7DDF7D9E2FC8E4D901217C86 /* notify.rs */ = {isa = PBXFileReference; path = notify.rs; sourceTree = "<group>"; };
 		821B0833ADBB05C0A364B0DC /* mailto.rs */ = {isa = PBXFileReference; path = mailto.rs; sourceTree = "<group>"; };
 		823355688ACA9041C27BB98B /* snooze.rs */ = {isa = PBXFileReference; path = snooze.rs; sourceTree = "<group>"; };
+		8669D714452CB52CEEF8FC8C /* presence.rs */ = {isa = PBXFileReference; path = presence.rs; sourceTree = "<group>"; };
 		895FA634BE6F82A3ADEFB78B /* widget.rs */ = {isa = PBXFileReference; path = widget.rs; sourceTree = "<group>"; };
 		8CBA6CEC6FB05E4A5766FC6C /* localorg.rs */ = {isa = PBXFileReference; path = localorg.rs; sourceTree = "<group>"; };
 		8DCC6051340FC9C31CFC5C6B /* commands.rs */ = {isa = PBXFileReference; path = commands.rs; sourceTree = "<group>"; };
@@ -79,6 +82,7 @@
 		CAFF400D60273B6191EC3980 /* draft_mirror.rs */ = {isa = PBXFileReference; path = draft_mirror.rs; sourceTree = "<group>"; };
 		CB8551DDC6EA9AF477DA45B6 /* native.rs */ = {isa = PBXFileReference; path = native.rs; sourceTree = "<group>"; };
 		CD235F844FD6A45F94C291CF /* host.rs */ = {isa = PBXFileReference; path = host.rs; sourceTree = "<group>"; };
+		D0C4B4C6675F48EC87E61E6C /* prefetch.rs */ = {isa = PBXFileReference; path = prefetch.rs; sourceTree = "<group>"; };
 		DF6EF51A1098F36F4B0712C9 /* calhost.rs */ = {isa = PBXFileReference; path = calhost.rs; sourceTree = "<group>"; };
 		E107671B4A0A68DD92D48148 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E71528569B0BC321AFA6040B /* linknav.rs */ = {isa = PBXFileReference; path = linknav.rs; sourceTree = "<group>"; };
@@ -86,6 +90,7 @@
 		E8E726E168682790C6455C00 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		ED8C33EC099F6931C919231A /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		F0679311E2B380DE9752FA4B /* tray.rs */ = {isa = PBXFileReference; path = tray.rs; sourceTree = "<group>"; };
+		F7774A6906D2304CD823FBAD /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = ../../plugins/mailcheck/ios; sourceTree = SOURCE_ROOT; };
 		FF5EB9C378EDE98F01CDD54E /* backup.rs */ = {isa = PBXFileReference; path = backup.rs; sourceTree = "<group>"; };
 		FFF10A23E24A551C655150B5 /* state.rs */ = {isa = PBXFileReference; path = state.rs; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -96,6 +101,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				46980897FCD62261F34AEDE3 /* libapp.a in Frameworks */,
+				28D00F889C4203ADDFB015D4 /* tauri-plugin-mailcheck in Frameworks */,
 				C06A8D393CF33BF0959BC3FA /* CoreGraphics.framework in Frameworks */,
 				56819B34DB73C615DAA389B0 /* Metal.framework in Frameworks */,
 				D8BAE5F3193ACCB44E905196 /* MetalKit.framework in Frameworks */,
@@ -124,6 +130,7 @@
 				403A9B85E3C2EB7A686ECB0D /* automation.rs */,
 				FF5EB9C378EDE98F01CDD54E /* backup.rs */,
 				1B82A9CB070E83FDDE13C070 /* badge.rs */,
+				12B7A1D90F7FF3372B8AE838 /* bgcheck.rs */,
 				958B3EE5CEB133DF7DEC6A20 /* bgsync.rs */,
 				5DD770D9C044E33E2012B170 /* cache_ctl.rs */,
 				9363D4D677B311AB5315F5E7 /* cal_cmds.rs */,
@@ -152,6 +159,8 @@
 				6B3DD85EA44045CEDE8560E9 /* outbox.rs */,
 				4C69A2CEDE4E503B09462DF7 /* panes.rs */,
 				35DAA3DAD575232C72A00985 /* plat_prefs.rs */,
+				D0C4B4C6675F48EC87E61E6C /* prefetch.rs */,
+				8669D714452CB52CEEF8FC8C /* presence.rs */,
 				989C81FCD296848B33F84C57 /* safety_cmds.rs */,
 				14DC21E05BFFB95923E0C384 /* secrets_cache.rs */,
 				823355688ACA9041C27BB98B /* snooze.rs */,
@@ -247,6 +256,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		E124811BB7ABDB3F26B90A12 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				F7774A6906D2304CD823FBAD /* ios */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
 		E488F526C952E9FD3D4DF5DF = {
 			isa = PBXGroup;
 			children = (
@@ -255,6 +272,7 @@
 				41806BEA5065F50F53EEB3C6 /* LaunchScreen.storyboard */,
 				CA39F430A4C7E40218900BFD /* Externals */,
 				06BDAE8C96C238FBA860B4E1 /* miramail_iOS */,
+				E124811BB7ABDB3F26B90A12 /* Packages */,
 				68924E860EFD60A6919A2706 /* Sources */,
 				13E6A1BE3301054D667A8C6E /* src */,
 				950C17FC3BDBB15DC1A6B2BD /* Frameworks */,
@@ -262,7 +280,7 @@
 			);
 			sourceTree = "<group>";
 		};
-		"TEMP_CDC9831F-24EC-4977-BECD-09D7156761A9" /* arm64 */ = {
+		"TEMP_6E8D5445-7C82-4FF2-B095-78E7C16D3CC4" /* arm64 */ = {
 			isa = PBXGroup;
 			children = (
 			);
@@ -286,6 +304,7 @@
 			);
 			name = miramail_iOS;
 			packageProductDependencies = (
+				4EB5F734AA45C553CAB0D69E /* tauri-plugin-mailcheck */,
 			);
 			productName = miramail_iOS;
 			productReference = 3DD405F961B4B49B8886F141 /* miramail_iOS.app */;
@@ -311,6 +330,9 @@
 			);
 			mainGroup = E488F526C952E9FD3D4DF5DF;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				41022C802FCED79D88E3134E /* XCLocalSwiftPackageReference "../../plugins/mailcheck/ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D28123AFF6306648779BDE41 /* Products */;
 			projectDirPath = "";
@@ -549,6 +571,20 @@
 			defaultConfigurationName = debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		41022C802FCED79D88E3134E /* XCLocalSwiftPackageReference "../../plugins/mailcheck/ios" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../plugins/mailcheck/ios;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4EB5F734AA45C553CAB0D69E /* tauri-plugin-mailcheck */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = "tauri-plugin-mailcheck";
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = EDC4E70F8FECA8DC9759E341 /* Project object */;
 }

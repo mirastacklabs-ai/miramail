@@ -375,11 +375,15 @@ class Org {
   /** Options for the open message, stamped with the message they were loaded for (checked before acting). */
   unsub = $state<(UnsubInfo & { account: string; folder: string; uid: number }) | null>(null);
   private unsubTok = 0;
+  /** True while the unsubscribe lookup for the open message is running (the Reader shows a "Checking…" line). */
+  unsubPending = $state(false);
   async loadUnsub(m: MessageSummary | undefined) {
     const tok = ++this.unsubTok;
     this.unsub = null;
+    this.unsubPending = !!m;
     if (!m) return;
     try { const u = await orgApi.unsubscribeInfo(m.account, m.folder, m.uid); if (tok === this.unsubTok) this.unsub = u ? { ...u, account: m.account, folder: m.folder, uid: m.uid } : null; } catch { /* no unsubscribe offered */ }
+    if (tok === this.unsubTok) this.unsubPending = false;
   }
   unsubBusy = $state(false);
   /** `kind`: "oneClick" contacts the sender's server (https, after a confirm naming the host); "mailto" sends mail through SMTP. */

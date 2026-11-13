@@ -88,16 +88,18 @@ mod migrate {
         let marker = format!("{account}{MARKER}");
         match b.raw_get(MAIN, account)? {
             Some(v) => {
-                // The password is already read: a Keychain error on the marker lookups must not fail get().
-                // Treat it as "not migrated" and stay best-effort (retried on the next get).
-                if matches!(b.raw_get(HELP, &marker), Ok(Some(_))) {
-                    return Ok(Some(v));
-                }
-                // Best effort: a failed step leaves the original (or the temp copy) in place and is retried later.
-                if matches!(b.raw_get(MAIN, &marker), Ok(Some(_))) {
-                    let _ = finish(b, account); // migrated by the first version: adopt the marker, clean old helpers
-                } else {
-                    let _ = migrate_item(b, account, &v);
+                // The password is already read. If either marker lookup errored we cannot tell whether the item was
+                // migrated: write nothing (a failed Keychain read must never trigger a rewrite) and retry on a later get.
+                let (new_m, old_m) = (b.raw_get(HELP, &marker), b.raw_get(MAIN, &marker));
+                match (new_m, old_m) {
+                    (Ok(Some(_)), _) => {}
+                    (Ok(None), Ok(Some(_))) => {
+                        let _ = finish(b, account); // migrated by the first version: adopt the marker, clean old helpers
+                    }
+                    (Ok(None), Ok(None)) => {
+                        let _ = migrate_item(b, account, &v); // best effort; a failure leaves the original in place
+                    }
+                    _ => {}
                 }
                 Ok(Some(v))
             }
@@ -367,6 +369,9 @@ mod tests {
             f.legacy(M, "a@x.org", "pw");
             *f.fail_get_on.lock().unwrap() = Some((svc.into(), name.into()));
             assert_eq!(migrate::get(&f, "a@x.org").unwrap().as_deref(), Some("pw"));
+            // No write happened: the item keeps its legacy policy and no helper item was created.
+            assert_eq!(f.policy_new(M, "a@x.org"), Some(false), "{svc} marker error: item rewritten");
+            assert_eq!(f.items.lock().unwrap().len(), 1, "{svc} marker error: helper items created");
         }
     }
 

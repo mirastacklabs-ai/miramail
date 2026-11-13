@@ -1,6 +1,6 @@
 // In-memory mock backend used only when running in a plain browser (dev).
 import type {
-  AccountInfo, Advanced, AttachmentData, Folder, FolderRole, ImageInfo, MessageBody, MessageSummary, Outgoing, SyncReport, LoadOlderResult, FlagName, SyncSettings, LiveStatus, DraftRec, Signature, SigDefaults, Identity, AddrSuggestion, OutboxItem, OutboxRestored,
+  AccountInfo, Advanced, AttachmentData, Folder, FolderRole, ImageInfo, MessageBody, MessageAnalysis, MessageSummary, Outgoing, SyncReport, LoadOlderResult, FlagName, SyncSettings, LiveStatus, DraftRec, Signature, SigDefaults, Identity, AddrSuggestion, OutboxItem, OutboxRestored,
 } from "./types";
 import { calMock, mockInvite } from "./mockcal";
 
@@ -72,7 +72,7 @@ function mockImages(html: string): ImageInfo[] {
 const wait = <T,>(v: T, ms = 120) => new Promise<T>((r) => setTimeout(() => r(structuredClone(v)), ms));
 const roleFolder = (role: FolderRole) => folders.find((f) => f.role === role)?.name ?? "INBOX";
 
-let syncSettings: SyncSettings = { foldersPerCycle: 2, intervalSeconds: 60, maxLiveFolders: 5, initialSyncMessages: 200 };
+let syncSettings: SyncSettings = { foldersPerCycle: 2, intervalSeconds: 60, maxLiveFolders: 5, initialSyncMessages: 200, prefetch: true };
 
 /** Mock server: INBOX holds MOCK_INBOX_TOTAL messages, only the seeded ones are "cached" until load_older fetches more. */
 const MOCK_INBOX_TOTAL = 3412;
@@ -148,12 +148,19 @@ export const mock = {
     if (!m) throw "That message no longer exists.";
     if (a.markSeen !== false) m.s.flags.seen = true;
     let html = m.html;
-    const images = html ? mockImages(html) : [];
-    const skip = a.skipTrackers ?? true;
-    if (!a.allowRemoteImages) { if (html) html = html.replace(/<img [^>]*src="https?:[^"]*"[^>]*>/g, ""); }
-    else if (skip && html) html = html.replace(/<img [^>]*src="https?:\/\/us1\.list-manage\.com[^"]*"[^>]*>/g, "");
-    return wait({ summary: m.s, text: m.text, html, blockedRemoteCount: a.allowRemoteImages ? 0 : m.blocked, images, attachments: m.att, replyTo: [], cc: m.s.uid === 1 ? [{ name: "Charles", address: "charles@engine.example" }] : [], references: null, invite: m.s.uid === 3 && m.s.folder === "INBOX" ? mockInvite() : null });
+    // Like the backend: remote images stay blocked until the analysis step when trackers are to be skipped.
+    const load = a.allowRemoteImages && a.skipTrackers === false;
+    if (!load) { if (html) html = html.replace(/<img [^>]*src="https?:[^"]*"[^>]*>/g, ""); }
+    return wait({ summary: m.s, text: m.text, html, blockedRemoteCount: a.allowRemoteImages ? 0 : m.blocked, attachments: m.att, replyTo: [], cc: m.s.uid === 1 ? [{ name: "Charles", address: "charles@engine.example" }] : [], references: null });
   },
+  async message_analysis(a: { folder: string; uid: number; allowRemoteImages: boolean; skipTrackers?: boolean }): Promise<MessageAnalysis> {
+    const m = msgs.find((x) => x.s.folder === a.folder && x.s.uid === a.uid);
+    if (!m) throw "That message no longer exists.";
+    const images = m.html ? mockImages(m.html) : [];
+    const html = a.allowRemoteImages && (a.skipTrackers ?? true) && m.html ? m.html.replace(/<img [^>]*src="https?:\/\/us1\.list-manage\.com[^"]*"[^>]*>/g, "") : null;
+    return wait({ images, invite: m.s.uid === 3 && m.s.folder === "INBOX" ? mockInvite() : null, html, blockedRemoteCount: 0 }, 350);
+  },
+  perf_log: (_a: { event: string; ms: number }) => wait(undefined, 0),
   safety_report: (a: { uid: number }) => wait(
     a.uid === 2
       ? { score: 28, level: "caution", reasons: [

@@ -2,6 +2,7 @@
   // Main window only: the "Sending… Undo" bar and the Outbox view (docs/ESSENTIALS_SPEC.md, send pipeline).
   import { outbox } from "../lib/outbox.svelte";
   import { actions, describe, recipients } from "../lib/outboxmodel";
+  import { fg } from "../lib/foreground";
   import Modal from "./Modal.svelte";
 
   const held = $derived(outbox.held);
@@ -24,7 +25,7 @@
         {@const a = actions(it)}
         <li class="it" class:bad={it.state === "failed" || it.state === "unknown"}>
           <div class="who"><span class="to">{recipients(it)}</span><span class="sub">{it.subject || "(no subject)"}</span></div>
-          <div class="st">{describe(it, outbox.now)}</div>
+          <div class="st">{describe(it, outbox.now, fg.known && !fg.present)}</div>
           {#if it.error && it.state !== "interrupted"}<div class="er selectable">{it.error}</div>{/if}
           <div class="acts">
             {#if a.undo}<button class="btn ghost sm" onclick={() => outbox.restore(it.id)}>Undo</button>{/if}

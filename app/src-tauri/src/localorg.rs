@@ -432,15 +432,24 @@ fn facts_for(storage: &Storage, muted: &HashMap<String, HashSet<String>>, vip: &
     })
 }
 
-/// New unread INBOX mail was detected (badge poller). Applies block / mute / VIP: blocked mail is moved to Junk
-/// and muted mail optionally marked read (both in the background, set-safe, never deleting). Returns the arrivals
-/// that may still produce a notification.
-pub fn on_arrivals(app: &AppHandle, prefs: &PlatformPrefs, arrivals: Vec<Recent>) -> Vec<Recent> {
-    let Some(lo) = app.try_state::<LocalOrg>() else { return arrivals };
-    let st = app.state::<AppState>();
+/// What the block / mute / VIP lists make of a batch of arrivals.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Classified {
+    /// May still produce a notification.
+    pub keep: Vec<Recent>,
+    /// Blocked senders (account, uid): the Mac moves these to Junk.
+    pub moves: Vec<(String, u32)>,
+    /// Muted threads with "auto-read" on (account, uid): the Mac marks these read.
+    pub reads: Vec<(String, u32)>,
+}
+
+/// Pure sorting of arrivals by the local lists; changes nothing anywhere. `None` when the lists cannot be read (the
+/// caller then keeps every arrival, as before). Shared by the Mac poller (which then acts on `moves` / `reads`) and the
+/// iPhone background check (which only looks at `keep`: it never moves or flags mail).
+pub fn classify_arrivals(storage: &Storage, lo: &LocalOrg, prefs: &PlatformPrefs, arrivals: Vec<Recent>) -> Option<Classified> {
     let (vip, blocked) = match (lo.vip_list(), lo.blocked_list()) {
         (Ok(v), Ok(b)) => (v.into_iter().map(|x| x.0).collect::<HashSet<_>>(), b.into_iter().map(|x| x.0).collect::<HashSet<_>>()),
-        _ => return arrivals,
+        _ => return None,
     };
     let mut muted: HashMap<String, HashSet<String>> = HashMap::new();
     for r in &arrivals {
@@ -448,24 +457,38 @@ pub fn on_arrivals(app: &AppHandle, prefs: &PlatformPrefs, arrivals: Vec<Recent>
             muted.insert(r.account.clone(), lo.muted_set(&r.account).unwrap_or_default());
         }
     }
-    let (mut keep, mut moves, mut reads) = (Vec::new(), Vec::new(), Vec::new());
+    let mut out = Classified::default();
     for r in arrivals {
-        let Some(f) = facts_for(&st.storage, &muted, &vip, &blocked, &r) else {
-            keep.push(r);
+        let Some(f) = facts_for(storage, &muted, &vip, &blocked, &r) else {
+            out.keep.push(r);
             continue;
         };
         match route(decide(f, prefs.notify_vip_only.contains(&r.account), prefs.mute_auto_read), &r.folder) {
-            Verdict::Notify => keep.push(r),
+            Verdict::Notify => out.keep.push(r),
             Verdict::Silent => {}
-            Verdict::SilentRead => reads.push((r.account.clone(), r.uid)),
-            Verdict::MoveToJunk => moves.push((r.account.clone(), r.uid)),
+            Verdict::SilentRead => out.reads.push((r.account.clone(), r.uid)),
+            Verdict::MoveToJunk => out.moves.push((r.account.clone(), r.uid)),
         }
     }
+    Some(out)
+}
+
+/// New unread INBOX mail was detected (badge poller). Applies block / mute / VIP: blocked mail is moved to Junk
+/// and muted mail optionally marked read (both in the background, set-safe, never deleting). Returns the arrivals
+/// that may still produce a notification. iPhone: the poller runs only while the user is in front of the app, and the
+/// actions re-check that before touching the server (presence.rs); the background check uses `classify_arrivals` only.
+pub fn on_arrivals(app: &AppHandle, prefs: &PlatformPrefs, arrivals: Vec<Recent>) -> Vec<Recent> {
+    let Some(lo) = app.try_state::<LocalOrg>() else { return arrivals };
+    let st = app.state::<AppState>();
+    let (arrivals_kept, moves, reads) = match classify_arrivals(&st.storage, &lo, prefs, arrivals.clone()) {
+        Some(c) => (c.keep, c.moves, c.reads),
+        None => return arrivals,
+    };
     if !moves.is_empty() || !reads.is_empty() {
         let app = app.clone();
         tauri::async_runtime::spawn(async move { run_actions(&app, moves, reads).await });
     }
-    keep
+    arrivals_kept
 }
 
 fn group(v: Vec<(String, u32)>) -> BTreeMap<String, Vec<u32>> {
@@ -479,6 +502,9 @@ fn group(v: Vec<(String, u32)>) -> BTreeMap<String, Vec<u32>> {
 async fn run_actions(app: &AppHandle, moves: Vec<(String, u32)>, reads: Vec<(String, u32)>) {
     let state = app.state::<AppState>();
     for (account, uids) in group(moves) {
+        if !crate::presence::user_present() {
+            return;
+        }
         let known = state.storage.list_folders(&account).unwrap_or_default();
         let Some(junk) = find_role(&known, FolderRole::Junk).map(|f| f.name.clone()) else { continue }; // no Junk folder: leave it alone
         let items: Vec<BatchItem> = uids
@@ -487,6 +513,11 @@ async fn run_actions(app: &AppHandle, moves: Vec<(String, u32)>, reads: Vec<(Str
             .collect();
         let validity = uids.first().and_then(|u| state.storage.get_message(&account, INBOX, *u).ok().flatten()).map(|m| m.uidvalidity);
         let Ok(mut conn) = state.connect(&account).await else { continue };
+        // The user may have left while the connection was being made: change nothing then.
+        if !crate::presence::user_present() {
+            conn.close().await;
+            return;
+        }
         let r = conn.client.batch_move(INBOX, validity, &junk, &items).await;
         conn.close().await;
         if let Ok(report) = r {
@@ -495,8 +526,16 @@ async fn run_actions(app: &AppHandle, moves: Vec<(String, u32)>, reads: Vec<(Str
         }
     }
     for (account, uids) in group(reads) {
+        if !crate::presence::user_present() {
+            return;
+        }
         let validity = uids.first().and_then(|u| state.storage.get_message(&account, INBOX, *u).ok().flatten()).map(|m| m.uidvalidity);
         let Ok(mut conn) = state.connect(&account).await else { continue };
+        // The user may have left while the connection was being made: change nothing then.
+        if !crate::presence::user_present() {
+            conn.close().await;
+            return;
+        }
         let r = conn.client.batch_flag(INBOX, validity, &uids, FlagChange::Seen(true)).await;
         conn.close().await;
         if let Ok(report) = r {

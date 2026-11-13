@@ -7,8 +7,8 @@
   let { title, onclose, children, tall = false }: { title: string; onclose: () => void; children: Snippet; tall?: boolean } = $props();
   // Keep taps in the sheet from moving the editor's selection.
   // A long press opens the sheet under the finger; the click iOS sends on lift must hit nothing (scrim or item).
-  const openedAt = Date.now();
-  const swallow = (e: Event) => { if (sheetTapIgnored(openedAt, Date.now())) { e.stopPropagation(); e.preventDefault(); return true; } return false; };
+  const openedAt = performance.now();
+  const swallow = (e: Event) => { if (sheetTapIgnored(openedAt, performance.now())) { e.stopPropagation(); e.preventDefault(); return true; } return false; };
   const closeScrim = (e: Event) => { if (!swallow(e)) onclose(); };
   const keep = (e: Event) => { if (!(e.target instanceof HTMLElement && e.target.closest("input,textarea,select"))) e.preventDefault(); };
 </script>

@@ -215,7 +215,7 @@ struct Snapshot {
     cache_max_uid: HashMap<String, Option<u32>>,
 }
 
-fn to_recent(m: &MessageSummary) -> Recent {
+pub(crate) fn to_recent(m: &MessageSummary) -> Recent {
     Recent {
         account: m.account.clone(),
         folder: m.folder.clone(),
@@ -243,8 +243,45 @@ fn snapshot(storage: &Storage, lo: Option<&crate::localorg::LocalOrg>) -> Snapsh
     Snapshot { accounts, cache_unread, inbox_total, recent, unseen_by_account, cache_max_uid }
 }
 
+/// Where the poller starts for an account the background check stored mail for: never later than its own baseline
+/// (a repeat of a Junk move / mark-read is harmless, a skipped one is not).
+pub fn seed_baseline(current: Option<u32>, floor: u32) -> u32 {
+    current.map_or(floor, |b| b.min(floor))
+}
+
+/// iPhone: the floors the background check recorded (bgcheck.rs `fg_floor`), for accounts whose cached INBOX still has
+/// the same UIDVALIDITY. Read only when a run recorded one since the last look.
+#[cfg(target_os = "ios")]
+async fn take_floors(app: &AppHandle) -> Vec<(String, u32)> {
+    if !crate::bgcheck::FLOORS_PENDING.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        return Vec::new();
+    }
+    let Ok(path) = app.path().app_data_dir().map(|d| d.join(crate::bgcheck::FILE)) else { return Vec::new() };
+    let storage = app.state::<crate::state::AppState>().storage.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::bgcheck::take_floors(&path)
+            .into_iter()
+            .filter(|(a, (v, _))| storage.folder_sync_state(a, INBOX).ok().and_then(|s| s.0) == Some(*v))
+            .map(|(a, (_, f))| (a, f))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+#[cfg(not(target_os = "ios"))]
+async fn take_floors(_app: &AppHandle) -> Vec<(String, u32)> {
+    Vec::new()
+}
+
 /// One poll step. `force` re-emits and re-applies even if nothing changed (preferences changed).
+/// iPhone: does nothing while the user is away (presence.rs; the background check badges and announces then). On the
+/// first tick after mail was stored in the background it starts from the floor that check recorded, so the block /
+/// mute actions for that mail run now (`localorg::on_arrivals`).
 pub async fn tick(app: &AppHandle, force: bool) {
+    if !crate::presence::user_present() {
+        return;
+    }
+    let floors = take_floors(app).await;
     let storage = app.state::<crate::state::AppState>().storage.clone();
     let lo = app.try_state::<crate::localorg::LocalOrg>().map(|s| s.inner().clone());
     let Ok(snap) = tauri::async_runtime::spawn_blocking(move || snapshot(&storage, lo.as_ref())).await else { return };
@@ -257,6 +294,12 @@ pub async fn tick(app: &AppHandle, force: bool) {
         let mut g = st.lock();
         g.baseline.retain(|a, _| snap.accounts.contains(a));
         g.offsets.retain(|a, _| snap.accounts.contains(a));
+        for (a, f) in floors {
+            if snap.accounts.contains(&a) {
+                let b = seed_baseline(g.baseline.get(&a).copied(), f);
+                g.baseline.insert(a, b);
+            }
+        }
         for a in &snap.accounts {
             if let Some(b) = g.baseline.get(a).copied() {
                 if baseline_stale(b, snap.cache_max_uid.get(a).copied().flatten()) {
@@ -299,6 +342,24 @@ pub fn apply(app: &AppHandle, s: &InboxSummary, prefs: &PlatformPrefs) {
         }
         crate::tray::sync(&app2, &s2, &p2);
     });
+    // iPhone: the app icon badge shows the same unread number (set off the main thread: it calls into Swift).
+    #[cfg(target_os = "ios")]
+    {
+        let (app3, n) = (app.clone(), dock_count(prefs.dock_badge, s.total).unwrap_or(0));
+        tauri::async_runtime::spawn_blocking(move || tauri_plugin_mailcheck::set_badge(&app3, n));
+    }
+}
+
+/// Unread INBOX mail in the local cache over all accounts, minus muted conversations (what the badge counts, without the
+/// server-side "older unread" offset the open app adds). Used by the iPhone background check.
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+pub fn cache_unread_total(storage: &Storage, lo: Option<&crate::localorg::LocalOrg>) -> u32 {
+    let mut total = 0u32;
+    for a in storage.list_accounts().unwrap_or_default() {
+        let muted = lo.map_or(0, |l| l.muted_unseen(storage, &a.email));
+        total = total.saturating_add(storage.unseen_count(&a.email, INBOX).unwrap_or(0).saturating_sub(muted));
+    }
+    total
 }
 
 /// Re-apply everything now (after a preferences change).
@@ -332,15 +393,16 @@ pub fn get_platform_prefs(state: tauri::State<'_, PlatformState>) -> PlatformPre
 
 #[tauri::command]
 pub fn set_platform_prefs(app: AppHandle, state: tauri::State<'_, PlatformState>, prefs: PlatformPrefs) -> Result<PlatformPrefs, String> {
-    // Not implemented off macOS (iOS phase 3): refuse to store "on" rather than show a toggle that does nothing.
-    if !cfg!(target_os = "macos") && prefs.notify {
-        return Err("Notifications aren't available on iPhone yet.".into());
+    // Notifications exist on macOS and iPhone only: refuse to store "on" elsewhere rather than show a toggle that does nothing.
+    if !cfg!(any(target_os = "macos", target_os = "ios")) && prefs.notify {
+        return Err("Notifications aren't available on this system.".into());
     }
     let turned_on = prefs.notify && !state.get().notify;
     let p = state.set(prefs)?;
     if turned_on {
-        // The user just opted in: this is the one place macOS's permission prompt is triggered (besides the test button).
-        let _ = crate::native::notifications::request_permission(); // macOS: the prompt result is not needed here
+        // The user just opted in: this is the one place the system permission prompt is triggered (besides the test
+        // button). On iPhone the page has already explained why before it asked for this.
+        let _ = crate::native::notifications::request_permission(); // the prompt result is not needed here
     }
     crate::widget::sync(&app);
     refresh_now(&app);
@@ -350,6 +412,15 @@ pub fn set_platform_prefs(app: AppHandle, state: tauri::State<'_, PlatformState>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_background_floor_never_moves_the_poller_forward() {
+        assert_eq!(seed_baseline(None, 20), 20, "fresh process: start where the open app left off");
+        assert_eq!(seed_baseline(Some(25), 20), 20, "earlier floor wins: mail 21-25 is looked at (again)");
+        assert_eq!(seed_baseline(Some(15), 20), 15);
+        let unseen = vec![Recent { account: "a".into(), folder: "INBOX".into(), uid: 21, from: "x".into(), subject: None, date: 1 }];
+        assert_eq!(new_arrivals(Some(seed_baseline(None, 20)), &unseen).0.len(), 1, "stored while away -> handled now");
+    }
 
     fn r(account: &str, uid: u32, date: i64, subject: &str) -> Recent {
         Recent { account: account.into(), folder: INBOX.into(), uid, from: "A".into(), subject: Some(subject.into()), date }

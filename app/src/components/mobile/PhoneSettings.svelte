@@ -16,7 +16,7 @@
   const openZoom = () => { void cal.refreshZoom(); cal.zoomOpen = true; };
   const removeAcct = async (email: string) => { acct = null; await app.removeAccount(email); };
   onMount(() => { if (!platformPrefs.loaded) void platformPrefs.load(); });
-  // Notifications are not available on iOS yet (platform_info.notifications = false): the entry is hidden there.
+  // The Notifications entry is hidden only where the backend has no notification support (platform_info.notifications = false).
   const GROUPS = $derived(ALL.map((g) => ({ ...g, items: g.items.filter((i) => i.id !== "notifications" || platformPrefs.notificationsAvailable) })));
   const label = $derived(GROUPS.flatMap((g) => g.items).find((i) => i.id === phone.nav.section)?.label ?? "");
 </script>

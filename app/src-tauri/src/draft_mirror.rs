@@ -227,15 +227,22 @@ async fn sweep_account(mirror: &DraftMirror, account: &str, client: &mut mailcor
     }
 }
 
-/// At launch (a few seconds after start): finish removals that could not be done last time.
+/// At launch (a few seconds after start): finish removals that could not be done last time. iPhone: only while the
+/// user is in front of the app; if they left meanwhile it waits for them (presence.rs).
 pub fn start_sweep(app: &tauri::AppHandle) {
     use tauri::Manager;
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+        while !crate::presence::user_present() {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
         let (state, mirror) = (app.state::<AppState>(), app.state::<DraftMirror>());
         let Ok(accounts) = mirror.pending_accounts() else { return };
         for account in accounts {
+            if !crate::presence::user_present() {
+                return; // the user left: the next launch sweeps again (the rows stay)
+            }
             let _gate = mirror.gate.lock().await;
             if let Ok(mut conn) = state.connect(&account).await {
                 sweep_account(&mirror, &account, &mut conn.client).await;

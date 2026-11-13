@@ -26,6 +26,8 @@ mod organise;
 mod safety_cmds;
 mod outbox;
 mod panes;
+mod prefetch;
+mod presence;
 mod state;
 mod textsafe;
 mod vcard;
@@ -33,6 +35,7 @@ mod vacation;
 mod wire;
 
 mod badge;
+mod bgcheck;
 mod mailto;
 mod notify;
 mod plat_prefs;
@@ -53,23 +56,154 @@ mod winstate;
 
 use mailcore::{KeychainSecretStore, SecretStore, Storage};
 use state::AppState;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
+
+static SERVICES_STARTED: AtomicBool = AtomicBool::new(false);
+static WATCHERS_RUNNING: AtomicBool = AtomicBool::new(false);
+/// Bumped by every watcher start and every stop; a start task whose generation is stale quits (see `start_watchers`).
+static WATCH_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Presence changes are applied one at a time (Swift reports on the main thread; setup applies the first one).
+static PRESENCE_APPLY: Mutex<()> = Mutex::new(());
+
+/// Run one service start, so a failing start is logged and never keeps the others from starting. (Release builds use
+/// `panic = "abort"`, where a panic ends the process anyway; this matters for debug builds.)
+fn start_one(name: &str, f: impl FnOnce()) {
+    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err() {
+        eprintln!("services: {name} failed to start");
+    }
+}
+
+/// The long-running services of the open app, at most once per process: the first time the user is present (at once on
+/// a Mac). On iPhone each of them also holds back while the user is away (`presence::user_present`).
+fn start_services(app: &tauri::AppHandle) {
+    if SERVICES_STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let storage = app.state::<AppState>().storage.clone();
+    start_one("backfill", || organise::start_backfill(storage));
+    start_one("outbox", || outbox::start(app));
+    // Snooze: overdue entries return shortly after start (app must be open).
+    start_one("snooze", || snooze::start(app));
+    start_one("draft mirror sweep", || draft_mirror::start_sweep(app));
+    start_one("calendar", || cal_sched::start(app));
+    start_one("badge", || badge::start(app));
+}
+
+/// Start an INBOX watcher (+ folder sync loop + live folders) for every saved account (Keychain read off the calling
+/// thread), then either the launch pass (first time: sync the Inbox, run rules / auto-reply over what arrived while
+/// MiraMail was closed) or the catch-up pass (back from the background: rules / auto-reply over what arrived meanwhile).
+fn start_watchers(app: &tauri::AppHandle, launch_pass: bool) {
+    // Generation: a stop (or a newer start) invalidates this task, so a slow Keychain read can never start a watcher
+    // (and its live-folder restore) after the user left or alongside a newer start.
+    let gen = WATCH_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let storage = app.state::<AppState>().storage.clone();
+    let secrets = app.state::<AppState>().secrets.clone();
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let accounts = storage.list_accounts().unwrap_or_default();
+        let emails: Vec<String> = accounts.iter().map(|a| a.email.clone()).collect();
+        for cfg in accounts {
+            // The user left while the Keychain was being read: the next arrival starts them again.
+            if !presence::user_present() || WATCH_GEN.load(Ordering::SeqCst) != gen {
+                return;
+            }
+            let s = secrets.clone();
+            let email = cfg.email.clone();
+            let pw = tauri::async_runtime::spawn_blocking(move || s.get(&email)).await;
+            if !presence::user_present() || WATCH_GEN.load(Ordering::SeqCst) != gen {
+                return;
+            }
+            if let Ok(Ok(Some(pw))) = pw {
+                // Once on start / when the user is back: fetch the newest uncached INBOX bodies a moment after the first sync.
+                prefetch::kick(&handle, &cfg.email, state::INBOX, std::time::Duration::from_secs(8));
+                state::start_watcher(&handle, cfg, pw);
+            }
+        }
+        if launch_pass {
+            automation::start_launch_pass(&handle, emails);
+        } else {
+            automation::start_catch_up_pass(&handle, emails);
+        }
+    });
+}
+
+/// The user arrived (`present`) or left. On a Mac this runs once, from setup, with `present = true`, and does exactly
+/// what setup always did. On iPhone it runs at setup and on every change: everything that talks to the mail servers or
+/// changes mail on its own starts only once the user is in front of the app; leaving stops the watchers (the rest holds
+/// back by itself). Idempotent; reads the live state rather than trusting the argument's order.
+fn on_presence(app: &tauri::AppHandle) {
+    let _g = PRESENCE_APPLY.lock().unwrap_or_else(|e| e.into_inner());
+    let present = presence::user_present();
+    let p = presence::plan(present, SERVICES_STARTED.load(Ordering::SeqCst), WATCHERS_RUNNING.load(Ordering::SeqCst));
+    if p.start_services {
+        start_services(app);
+    }
+    if p.start_watchers {
+        WATCHERS_RUNNING.store(true, Ordering::SeqCst);
+        start_watchers(app, p.launch_pass);
+    }
+    if p.stop_watchers {
+        WATCHERS_RUNNING.store(false, Ordering::SeqCst);
+        WATCH_GEN.fetch_add(1, Ordering::SeqCst);
+        app.state::<AppState>().pause_watchers();
+    }
+    if !present {
+        // The Reader's warm interactive session too: nothing stays logged in while the user is away (iPhone only).
+        app.state::<AppState>().close_lanes();
+    }
+    #[cfg(target_os = "ios")]
+    {
+        use tauri::Emitter;
+        // The page waits for this before anything that talks to a server (app/src/lib/foreground.ts).
+        let _ = app.emit("app://presence", presence::launch_state_now());
+        safety_cmds::perf::log(&format!("perf: presence present={present}"));
+    }
+}
+
+/// iPhone: tell the Swift side what to run when iOS wakes the app. Reachable only from that wake-up: there is no command
+/// for it, and nothing here reads launch arguments.
+#[cfg(target_os = "ios")]
+fn install_mailcheck(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri_plugin_mailcheck::set_check_handler(Box::new(move |token| {
+        let t = token.clone();
+        let cancelled: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || t.is_cancelled());
+        // Hard cap on top of the per-account budget inside `run` (a stuck Keychain read or DNS lookup must not outlive it).
+        let work = tauri::async_runtime::block_on(async {
+            tokio::time::timeout(bgcheck::BUDGET + std::time::Duration::from_secs(3), bgcheck::run(&app, cancelled)).await
+        });
+        match work {
+            Ok(Ok(s)) if s.cut || token.is_cancelled() => Ok(tauri_plugin_mailcheck::Outcome::Cut(s.text())),
+            Ok(Ok(s)) if s.failed > 0 && s.failed == s.accounts => Err(s.text()),
+            Ok(Ok(s)) => Ok(tauri_plugin_mailcheck::Outcome::Done(s.text())),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Ok(tauri_plugin_mailcheck::Outcome::Cut("time budget exceeded".into())),
+        }
+    }));
+}
+#[cfg(not(target_os = "ios"))]
+fn install_mailcheck(_app: &tauri::AppHandle) {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // iPhone only: background new-mail check (BGAppRefreshTask) + notification taps. No push service.
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(tauri_plugin_mailcheck::init());
+    builder
         .plugin(linknav::plugin())
         .on_window_event(winstate::on_window_event)
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
+            safety_cmds::perf::init(&dir);
             let storage = Arc::new(Storage::open(dir.join("miramail.db"))?);
             let secrets: Arc<dyn SecretStore> = Arc::new(secrets_cache::CachedSecretStore::new(KeychainSecretStore));
             let state = AppState::new(storage.clone(), secrets.clone());
             state.init_config(dir.join(bgsync::SETTINGS_FILE));
             app.manage(state);
-            organise::start_backfill(storage.clone());
             // Offline-cache limits (Preferences > Privacy > Storage): loaded before any sync can cache a body.
             cache_ctl::load_into(&storage, &dir.join(cache_ctl::FILE));
             app.manage(cache_ctl::PolicyFile::new(dir.join(cache_ctl::FILE)));
@@ -88,11 +222,8 @@ pub fn run() {
             app.manage(contacts::ContactStore::open(dir.join("workspace.db"))?);
             // Threads, mute / pin / VIP / blocked senders: local tables in the same workspace database. No network.
             app.manage(localorg::LocalOrg::open(dir.join("workspace.db"))?);
-            outbox::start(app.handle());
             // Snooze: entries in the same workspace database; overdue ones return shortly after launch (app must be open).
             app.manage(snooze::SnoozeState { store: snooze::SnoozeStore::open(dir.join("workspace.db"))? });
-            snooze::start(app.handle());
-            draft_mirror::start_sweep(app.handle());
             app.manage(panes::Shutdown::default());
             // Calendar: own database file; CalDAV passwords + Zoom tokens in the same (cached) Keychain store.
             let cal = calendar::Calendar::open(dir.join("calendar.db")).map_err(|e| format!("couldn't open the calendar database: {e}"))?;
@@ -131,7 +262,6 @@ pub fn run() {
             );
             app.manage(auto);
             app.manage(ai);
-            cal_sched::start(app.handle());
             // Platform integration: prefs, native menu bar, Dock badge / menu-bar item / widget / notifications.
             let plat = plat_prefs::PlatformState::default();
             plat.init(dir.join(plat_prefs::FILE));
@@ -149,26 +279,22 @@ pub fn run() {
                 winstate::restore_main(app.handle());
             }
             widget::sync(app.handle());
-            badge::start(app.handle());
+            install_mailcheck(app.handle());
             #[cfg(desktop)]
             panes::restore(app.handle());
 
-            // Start an INBOX watcher for every saved account (Keychain read off the setup thread).
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let accounts = storage.list_accounts().unwrap_or_default();
-                let emails: Vec<String> = accounts.iter().map(|a| a.email.clone()).collect();
-                for cfg in accounts {
-                    let s = secrets.clone();
-                    let email = cfg.email.clone();
-                    let pw = tauri::async_runtime::spawn_blocking(move || s.get(&email)).await;
-                    if let Ok(Ok(Some(pw))) = pw {
-                        state::start_watcher(&handle, cfg, pw);
-                    }
-                }
-                // Mail that arrived while MiraMail was closed: rules / auto-reply look at it once.
-                automation::start_launch_pass(&handle, emails);
-            });
+            // Everything that talks to the mail servers or changes mail on its own (watchers, rules / auto-reply, scheduled
+            // send, snooze, Junk moves, CalDAV, ...) starts once the user is in front of the app: here on a Mac; on iPhone
+            // here or on the first didBecomeActive (a background launch only reads and stores new mail, bgcheck.rs), and
+            // it is held back again whenever the user leaves (presence.rs).
+            #[cfg(target_os = "ios")]
+            {
+                let h = app.handle().clone();
+                // Called once now with the current state (covering any report Swift made before this), then on every change.
+                tauri_plugin_mailcheck::set_presence_handler(Arc::new(move |_| on_presence(&h)));
+            }
+            #[cfg(not(target_os = "ios"))]
+            on_presence(app.handle());
             Ok(())
         })
         .invoke_handler(widget::guard(tauri::generate_handler![
@@ -182,7 +308,9 @@ pub fn run() {
             commands::load_older,
             commands::get_message,
             commands::get_attachment,
+            commands::message_analysis,
             safety_cmds::safety_report,
+            safety_cmds::perf_log,
             commands::set_flag,
             commands::move_message,
             commands::move_message_to,
@@ -346,6 +474,7 @@ pub fn run() {
             widget::widget_menu,
             mailto::take_pending_mailto,
             notify::notify_test,
+            notify::notification_tap,
             localorg::thread_map,
             localorg::thread_members,
             localorg::mute_thread,
@@ -358,6 +487,7 @@ pub fn run() {
             menu::set_launch_at_login,
             native::platform_info,
             native::open_link,
+            presence::launch_state,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building MiraMail")

@@ -5,12 +5,13 @@
   import type { SyncSettings } from "../lib/types";
   import Select from "./Select.svelte";
 
-  const DEFAULTS: SyncSettings = { foldersPerCycle: 2, intervalSeconds: 60, maxLiveFolders: 5, initialSyncMessages: 200 };
+  const DEFAULTS: SyncSettings = { foldersPerCycle: 2, intervalSeconds: 60, maxLiveFolders: 5, initialSyncMessages: 200, prefetch: true };
   const INITIAL_CHOICES = [100, 200, 500, 1000, 2000, 5000];
   let perCycle = $state(DEFAULTS.foldersPerCycle);
   let interval = $state(DEFAULTS.intervalSeconds);
   let maxLive = $state(DEFAULTS.maxLiveFolders);
   let initial = $state(DEFAULTS.initialSyncMessages);
+  let prefetch = $state(DEFAULTS.prefetch);
   /** The presets, plus the stored value when it was set outside them (e.g. hand-edited file). */
   const initialOptions = $derived(
     (INITIAL_CHOICES.includes(initial) ? INITIAL_CHOICES : [...INITIAL_CHOICES, initial].sort((a, b) => a - b)).map((n) => ({
@@ -21,7 +22,7 @@
   let loaded = $state(false);
 
   onMount(async () => {
-    try { const s = await api.getSyncSettings(); perCycle = s.foldersPerCycle; interval = s.intervalSeconds; maxLive = s.maxLiveFolders; initial = s.initialSyncMessages ?? DEFAULTS.initialSyncMessages; }
+    try { const s = await api.getSyncSettings(); perCycle = s.foldersPerCycle; interval = s.intervalSeconds; maxLive = s.maxLiveFolders; initial = s.initialSyncMessages ?? DEFAULTS.initialSyncMessages; prefetch = s.prefetch ?? DEFAULTS.prefetch; }
     catch (e) { app.fail(e); }
     loaded = true;
     if (app.account) void app.loadLive(app.account);
@@ -49,13 +50,13 @@
     if (bad) { app.notify(bad, "error"); return; }
     busy = true;
     try {
-      const s = await api.setSyncSettings({ foldersPerCycle: perCycle, intervalSeconds: interval, maxLiveFolders: maxLive, initialSyncMessages: initial });
-      perCycle = s.foldersPerCycle; interval = s.intervalSeconds; maxLive = s.maxLiveFolders; initial = s.initialSyncMessages;
+      const s = await api.setSyncSettings({ foldersPerCycle: perCycle, intervalSeconds: interval, maxLiveFolders: maxLive, initialSyncMessages: initial, prefetch });
+      perCycle = s.foldersPerCycle; interval = s.intervalSeconds; maxLive = s.maxLiveFolders; initial = s.initialSyncMessages; prefetch = s.prefetch;
       app.notify("Sync settings saved");
     } catch (e) { app.notify(errMsg(e), "error"); }
     busy = false;
   }
-  function reset() { perCycle = DEFAULTS.foldersPerCycle; interval = DEFAULTS.intervalSeconds; maxLive = DEFAULTS.maxLiveFolders; initial = DEFAULTS.initialSyncMessages; }
+  function reset() { perCycle = DEFAULTS.foldersPerCycle; interval = DEFAULTS.intervalSeconds; maxLive = DEFAULTS.maxLiveFolders; initial = DEFAULTS.initialSyncMessages; prefetch = DEFAULTS.prefetch; }
 
   const liveList = $derived(app.account ? (app.liveFolders[app.account] ?? []) : []);
   const stateText = (f: string) => {
@@ -69,6 +70,10 @@
   <p class="note">How many of the newest messages are downloaded the first time a folder is synced. More takes longer and uses more disk space. A change applies to folders synced from now on; folders already on this Mac keep what they have, and you can always load older mail with the button at the bottom of a message list.</p>
   <div class="field"><span class="label" id="ss-init-l">Initial messages per folder</span>
     <Select value={initial} options={initialOptions} onchange={(v) => { initial = v; }} labelledby="ss-init-l" disabled={!loaded} /></div>
+
+  <h3 id="prefetch-h">Download in advance</h3>
+  <label class="chk"><input type="checkbox" bind:checked={prefetch} disabled={!loaded} /> Download new mail in advance</label>
+  <p class="note">Opens new mail instantly. Uses some data and storage.</p>
 
   <h3 id="bgsync-h">Background sync</h3>
   <p class="note">INBOX is always live. Other folders are checked in turn, a few at a time, over one short connection.</p>
@@ -107,6 +112,8 @@
   section { display: grid; gap: 12px; }
   h3 { margin: 0; font-size: 0.8rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
   .note { margin: 0; font-size: 0.8667rem; color: var(--muted); }
+  .chk { display: flex; gap: 8px; align-items: center; font-size: 0.9333rem; }
+  .chk input { accent-color: var(--accent); }
   .explain { margin: 0; font-size: 0.8667rem; border: 1px solid var(--line); border-left: 2px solid var(--accent); border-radius: var(--radius); padding: 8px 12px; }
   .live { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
   .live li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 0.8667rem; }

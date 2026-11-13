@@ -866,3 +866,22 @@ mod tests {
         assert!(!o.contains("<style") && !o.contains(".x{"), "{o}");
     }
 }
+
+/// The Reader's link gate (app/src/lib/linkgate.ts `holdHtml`) relies on this output shape: only `<a href>` survives as a
+/// link; names are lower-case, values double-quoted with `"`, `<`, `>` escaped; no comments, raw-text elements, svg,
+/// area hrefs, targets, forms, meta refresh, tabindex, ping or data-* attributes.
+#[cfg(test)]
+mod reader_link_fixture {
+    #[test]
+    fn hostile_links_leave_only_plain_a_href() {
+        let h = r#"<A HREF="https://a.example/1" TARGET="_blank" style="pointer-events:auto!important;color:red">up</A><map name=m><area href="https://a.example/2" shape=rect coords="0,0,1,1" target=_top></map><svg><a xlink:href="https://a.example/3">s</a></svg><form action="https://a.example/4"><button formaction="https://a.example/5">b</button></form><meta http-equiv="refresh" content="0;url=https://a.example/6"><a href='https://a.example/7' data-mm-href="https://evil" tabindex=1 ping="https://a.example/8">q</a><xmp><a href="https://a.example/9">x</a></xmp><!-- <a href="https://a.example/10"> --><p title='x" <a href="https://a.example/11">'>t</p>"#;
+        let o = super::sanitize_html(h, false).html;
+        assert_eq!(
+            o,
+            r#"<a href="https://a.example/1" style="color:red" rel="noopener noreferrer">up</a><map><area></map>b<a href="https://a.example/7" rel="noopener noreferrer">q</a>&lt;a href="https://a.example/9"&gt;x&lt;/a&gt;<p title="x&quot; &lt;a href=&quot;https://a.example/11&quot;&gt;">t</p>"#
+        );
+        for gone in ["target", "xlink", "action", "refresh", "tabindex", "ping", "data-mm", "pointer-events", "<svg", "<form", "<meta", "<!--"] {
+            assert!(!o.to_ascii_lowercase().contains(gone), "{gone} in {o}");
+        }
+    }
+}

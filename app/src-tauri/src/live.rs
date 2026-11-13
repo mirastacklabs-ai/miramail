@@ -153,13 +153,17 @@ pub fn start_live(app: &AppHandle, cfg: &AccountConfig, password: String, folder
                 }
                 continue;
             }
-            if ev == WatchEvent::NewMail {
+            // iPhone: nothing while the user is away (the watcher is being stopped then; presence.rs).
+            if ev == WatchEvent::NewMail && crate::presence::user_present() {
                 let st = app.state::<AppState>();
                 if let Ok(mut conn) = st.connect(&email).await {
-                    let _ = conn.client.sync_folder(&st.storage, &email, &folder, st.initial_sync_limit()).await;
+                    if crate::presence::user_present() {
+                        let _ = conn.client.sync_folder(&st.storage, &email, &folder, st.initial_sync_limit()).await;
+                    }
                     conn.close().await;
                 }
                 let _ = app.emit("mail://new", NewMailEvent { account: email.clone(), folder: folder.clone() });
+                crate::prefetch::kick(&app, &email, &folder, crate::prefetch::RULES_GRACE);
                 crate::automation::notify(&app, &email, &folder);
             }
         }

@@ -2744,6 +2744,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "tauri-plugin-mailcheck",
  "tempfile",
  "tokio",
 ]
@@ -4832,6 +4833,16 @@ name = "tauri-plugin-bgrefresh"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
+name = "tauri-plugin-mailcheck"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-plugin",
 ]

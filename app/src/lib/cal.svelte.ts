@@ -2,6 +2,7 @@ import { api, onCalChanged } from "./api";
 import { app } from "./state.svelte";
 import { thisDevice } from "./device";
 import { workspace } from "./workspace.svelte";
+import { fg } from "./foreground";
 import { rangeFor, sod, stepAnchor, titleFor, localTz, toRfc, weekStartDay, type CalMode } from "./caldate";
 import type { CalEvent, CalendarInfo, Occurrence, ZoomStatus } from "./types";
 
@@ -44,7 +45,8 @@ class CalState {
   async refreshCalendars() {
     try { this.calendars = await api.calListCalendars(); } catch (e) { app.fail(e); }
   }
-  async refreshZoom() { try { this.zoom = await api.zoomStatus(); } catch (e) { app.fail(e); } }
+  /** Asks Zoom (network): on iPhone only once the user is in front of the app. */
+  async refreshZoom() { await fg.whenPresent(); try { this.zoom = await api.zoomStatus(); } catch (e) { app.fail(e); } }
   async refresh() { await Promise.all([this.refreshCalendars(), this.load()]); }
 
   async load() {

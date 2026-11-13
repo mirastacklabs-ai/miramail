@@ -16,7 +16,9 @@
   }
 </script>
 
-{#if u && (u.mailto || u.httpsHost)}
+{#if org.unsubPending && !u}
+  <p class="busy" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span>Checking for an unsubscribe option…</p>
+{:else if u && (u.mailto || u.httpsHost)}
   <div class="unsub" role="region" aria-label="Unsubscribe">
     <span class="t">This looks like a mailing list.</span>
     <span class="acts">
@@ -28,6 +30,10 @@
 {/if}
 
 <style>
+  .busy { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 0.8333rem; color: var(--muted); }
+  .spin { width: 12px; height: 12px; flex: none; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: rot .8s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
   .unsub { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border: 1px solid var(--line); border-left: 2px solid var(--muted); border-radius: var(--radius); padding: 6px 12px; font-size: 0.8667rem; color: var(--muted); }
   .acts { display: inline-flex; gap: 8px; flex-wrap: wrap; }
 </style>

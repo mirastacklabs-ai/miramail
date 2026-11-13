@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/aichat", "crates/autodetect", "crates/mailcore", "crates/calendar", "crates/calsync", "app/src-tauri", "app-ios/src-tauri", "app-ios/src-tauri/plugins/bgrefresh"]
+members = ["crates/aichat", "crates/autodetect", "crates/mailcore", "crates/calendar", "crates/calsync", "app/src-tauri", "app-ios/src-tauri", "app-ios/src-tauri/plugins/bgrefresh", "app/src-tauri/plugins/mailcheck"]
 
 [profile.release]
 opt-level = "z"

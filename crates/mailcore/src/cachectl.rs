@@ -89,7 +89,7 @@ impl Storage {
 
     /// Bytes of cached raw bodies for the account, from a short-lived in-memory counter (re-measured with one
     /// SUM after `BODY_BYTES_TTL`, bumped by `note_body_stored`), so a batch of body stores does not rescan the table each time.
-    fn cached_body_bytes_fast(&self, account: &str) -> u64 {
+    pub fn cached_body_bytes_fast(&self, account: &str) -> u64 {
         {
             let m = self.body_bytes.lock().unwrap_or_else(|e| e.into_inner());
             if let Some((n, at)) = m.get(account) {

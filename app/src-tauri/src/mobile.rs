@@ -35,11 +35,19 @@ pub mod widget {
 
     pub const LABEL: &str = "widget";
 
-    /// No widget window on iOS, so there is nothing to restrict: the single main window gets the whole handler.
+    /// No widget window on iOS. What is restricted instead is time: while the user is not in front of the app (iOS
+    /// may load the page during a background launch), only local commands run; the rest is refused with
+    /// `presence::DEFERRED` and the page asks again once the user is back (see presence.rs).
     pub fn guard<R: Runtime>(
         inner: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
     ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
-        inner
+        move |invoke| {
+            if !crate::presence::command_allowed(crate::presence::user_present(), invoke.message.command()) {
+                invoke.resolver.reject(crate::presence::DEFERRED);
+                return true;
+            }
+            inner(invoke)
+        }
     }
 
     pub fn sync(_app: &AppHandle) {}

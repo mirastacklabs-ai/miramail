@@ -524,9 +524,32 @@ pub(crate) async fn handshake(tcp: TcpStream, host: &str) -> Result<TlsStream<Tc
         .map_err(|e| Error::Tls(e.to_string()))
 }
 
+/// Phase durations (ms) and byte count of this connection, for the app's `perf:` log lines. No content.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ImapTimings {
+    pub tcp_ms: u32,
+    pub tls_ms: u32,
+    pub login_ms: u32,
+    pub select_ms: u32,
+    pub fetch_ms: u32,
+    pub store_ms: u32,
+    pub fetched_bytes: usize,
+}
+
+fn ms_since(t: std::time::Instant) -> u32 {
+    t.elapsed().as_millis().min(u32::MAX as u128) as u32
+}
+
 pub struct ImapClient {
     session: Sess,
     caps: Caps,
+    pub timings: ImapTimings,
+    /// Folder (and its UIDVALIDITY) this session last SELECTed through [`ImapClient::select`]; cleared before every
+    /// SELECT / EXAMINE and whenever a sibling module takes the raw session.
+    selected: Option<(String, u32)>,
+    /// Opt-in ([`ImapClient::reuse_selection`]): `fetch_body` skips the SELECT when the folder is already selected
+    /// under the expected UIDVALIDITY. Only the app's warm interactive session turns it on.
+    reuse_select: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -534,6 +557,12 @@ struct Caps {
     idle: bool,
     mv: bool,
     uidplus: bool,
+}
+
+/// May a fetch skip its SELECT? Only when the session opted in, `folder` is the one selected, and the caller's
+/// UIDVALIDITY is known and equals the one that SELECT returned (an unknown one always re-selects).
+pub fn selection_reusable(opted_in: bool, selected: Option<&(String, u32)>, folder: &str, expected_validity: Option<u32>) -> bool {
+    opted_in && matches!((selected, expected_validity), (Some((f, v)), Some(e)) if f == folder && *v == e)
 }
 
 /// A destructive command needs the UIDVALIDITY the UID was observed under; "unknown" is refused.
@@ -544,10 +573,14 @@ pub fn require_validity(v: Option<u32>) -> Result<u32> {
 impl ImapClient {
     /// Connect (TLS), LOGIN. The password is used for this call only.
     pub async fn connect(cfg: &ServerConfig, username: &str, password: &str) -> Result<Self> {
+        let mut timings = ImapTimings::default();
+        let t = std::time::Instant::now();
         let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((cfg.host.as_str(), cfg.port)))
             .await
             .map_err(|_| Error::Timeout("tcp connect"))??;
+        timings.tcp_ms = ms_since(t);
         let _ = tcp.set_nodelay(true);
+        let t = std::time::Instant::now();
         let tls = match cfg.tls {
             Tls::Implicit => handshake(tcp, &cfg.host).await?,
             Tls::StartTls => {
@@ -567,6 +600,8 @@ impl ImapClient {
                 .await
                 .map_err(|_| Error::Timeout("greeting"))??;
         }
+        timings.tls_ms = ms_since(t); // handshake + greeting (STARTTLS: also the STARTTLS exchange)
+        let t = std::time::Instant::now();
         let mut session = match timeout(LOGIN_TIMEOUT, client.login(username, password)).await {
             Err(_) => return Err(Error::Timeout("login")),
             Ok(Ok(s)) => s,
@@ -575,7 +610,8 @@ impl ImapClient {
         };
         let c = session.capabilities().await?;
         let caps = Caps { idle: c.has_str("IDLE"), mv: c.has_str("MOVE"), uidplus: c.has_str("UIDPLUS") };
-        Ok(ImapClient { session, caps })
+        timings.login_ms = ms_since(t); // LOGIN + CAPABILITY
+        Ok(ImapClient { session, caps, timings, selected: None, reuse_select: false })
     }
 
     pub fn supports_idle(&self) -> bool {
@@ -584,6 +620,7 @@ impl ImapClient {
 
     /// Raw session for sibling modules (folder management); they own their own commands and timeouts.
     pub(crate) fn session_mut(&mut self) -> &mut Sess {
+        self.selected = None; // the caller may SELECT, CLOSE or rename anything
         &mut self.session
     }
 
@@ -596,7 +633,7 @@ impl ImapClient {
     }
 
     pub(crate) fn from_session(session: Sess, idle: bool) -> Self {
-        ImapClient { session, caps: Caps { idle, ..Caps::default() } }
+        ImapClient { session, caps: Caps { idle, ..Caps::default() }, timings: ImapTimings::default(), selected: None, reuse_select: false }
     }
 
     pub async fn logout(mut self) -> Result<()> {
@@ -651,14 +688,23 @@ impl ImapClient {
     }
 
     pub async fn select(&mut self, folder: &str) -> Result<(u32, u32, Option<u32>)> {
-        let mb = self.session.select(folder).await?;
+        self.selected = None; // a failed SELECT leaves no mailbox selected (RFC 3501 6.3.1)
+        let mb = timeout(Duration::from_secs(20), self.session.select(folder)).await.map_err(|_| Error::Timeout("select"))??;
         let v = mb.uid_validity.ok_or_else(|| Error::Imap("server gave no UIDVALIDITY".into()))?;
+        self.selected = Some((folder.to_string(), v));
         Ok((v, mb.exists, mb.uid_next))
+    }
+
+    /// Let `fetch_body` reuse the current SELECT (see [`selection_reusable`]). For a session kept open between reader
+    /// fetches; every other caller keeps the SELECT per fetch.
+    pub fn reuse_selection(&mut self, on: bool) {
+        self.reuse_select = on;
     }
 
     /// Like [`select`](Self::select) but read-only (EXAMINE): nothing can change on the server.
     pub async fn examine(&mut self, folder: &str) -> Result<(u32, u32, Option<u32>)> {
-        let mb = self.session.examine(folder).await?;
+        self.selected = None; // read-only state: never reused for a fetch that expects SELECT
+        let mb = timeout(Duration::from_secs(20), self.session.examine(folder)).await.map_err(|_| Error::Timeout("examine"))??;
         let v = mb.uid_validity.ok_or_else(|| Error::Imap("server gave no UIDVALIDITY".into()))?;
         Ok((v, mb.exists, mb.uid_next))
     }
@@ -830,11 +876,22 @@ impl ImapClient {
 
     /// Full raw RFC 822 message (BODY.PEEK[] - does not set \Seen).
     pub async fn fetch_body(&mut self, folder: &str, uid: u32, expected_validity: Option<u32>) -> Result<Vec<u8>> {
-        let (validity, _, _) = self.select(folder).await?;
-        if expected_validity.is_some_and(|v| v != validity) {
-            return Err(Error::Imap("UIDVALIDITY changed; resync the folder".into()));
+        if !selection_reusable(self.reuse_select, self.selected.as_ref(), folder, expected_validity) {
+            let t = std::time::Instant::now();
+            let (validity, _, _) = self.select(folder).await?;
+            self.timings.select_ms = ms_since(t);
+            if expected_validity.is_some_and(|v| v != validity) {
+                return Err(Error::Imap("UIDVALIDITY changed; resync the folder".into()));
+            }
+        } else {
+            self.timings.select_ms = 0;
         }
-        let fetches: Vec<Fetch> = self.session.uid_fetch(uid.to_string(), "BODY.PEEK[]").await?.try_collect().await?;
+        let t = std::time::Instant::now();
+        let fetches: Vec<Fetch> = timeout(FETCH_TIMEOUT, async { self.session.uid_fetch(uid.to_string(), "BODY.PEEK[]").await?.try_collect().await })
+            .await
+            .map_err(|_| Error::Timeout("fetch"))??;
+        self.timings.fetch_ms = ms_since(t);
+        self.timings.fetched_bytes = fetches.iter().filter_map(|f| f.body()).map(<[u8]>::len).sum();
         fetches
             .iter()
             .find(|f| f.uid == Some(uid))
@@ -852,7 +909,9 @@ impl ImapClient {
         let raw = self.fetch_body(folder, uid, validity).await?;
         let snippet = parse_message(&raw).ok().and_then(|p| p.text).map(|t| make_snippet(&t)).unwrap_or_default();
         if let Some(v) = validity {
+            let t = std::time::Instant::now();
             storage.set_body(account, folder, uid, v, &raw, &snippet)?;
+            self.timings.store_ms = ms_since(t);
         }
         Ok(raw)
     }
@@ -868,8 +927,14 @@ impl ImapClient {
     }
 
     pub async fn set_flag(&mut self, folder: &str, uid: u32, expected_validity: Option<u32>, change: FlagChange) -> Result<()> {
+        let t = std::time::Instant::now();
         self.select_checked(folder, expected_validity).await?;
-        let _: Vec<Fetch> = self.session.uid_store(uid.to_string(), flag_cmd(change)).await?.try_collect().await?;
+        self.timings.select_ms = ms_since(t);
+        let t = std::time::Instant::now();
+        let _: Vec<Fetch> = timeout(Duration::from_secs(20), async { self.session.uid_store(uid.to_string(), flag_cmd(change)).await?.try_collect().await })
+            .await
+            .map_err(|_| Error::Timeout("store"))??;
+        self.timings.store_ms = ms_since(t);
         Ok(())
     }
 
@@ -1051,6 +1116,17 @@ impl crate::batch::BatchServer for ImapClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn select_is_reused_only_for_the_same_folder_and_known_validity() {
+        let sel = ("INBOX".to_string(), 7);
+        assert!(selection_reusable(true, Some(&sel), "INBOX", Some(7)));
+        assert!(!selection_reusable(false, Some(&sel), "INBOX", Some(7)), "not opted in: always SELECT");
+        assert!(!selection_reusable(true, Some(&sel), "Sent", Some(7)), "another folder");
+        assert!(!selection_reusable(true, Some(&sel), "INBOX", Some(8)), "UIDVALIDITY differs");
+        assert!(!selection_reusable(true, Some(&sel), "INBOX", None), "unknown validity re-selects");
+        assert!(!selection_reusable(true, None, "INBOX", Some(7)), "nothing selected");
+    }
 
     #[test]
     fn roles_from_special_use() {

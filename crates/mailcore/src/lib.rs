@@ -29,7 +29,7 @@ pub mod watch;
 
 pub use ai_text::ai_text;
 pub use error::{Error, Result};
-pub use imap::ImapClient;
+pub use imap::{ImapClient, ImapTimings};
 pub use mime::{attachment_bytes, parse_message, render_html, render_html_with, ParsedMessage};
 pub use tracking::{analyze_remote_images, analyze_remote_images_from, tracker_url_set, ImageInfo};
 pub use compose_html::{sanitize_compose_html, MAX_COMPOSE_HTML};

@@ -4,6 +4,8 @@ import { workspace } from "./workspace.svelte";
 import { cal } from "./cal.svelte";
 import { replyFresh, replyTo } from "./compose";
 import { onMailto, onMenuAction, onNotice, onOpenInbox, onOpenMessage, platformApi, type MailtoDraft } from "./platformapi";
+import { phone } from "./phone.svelte";
+import { openList } from "./phonemodel";
 import type { FolderRole } from "./types";
 
 const GO: Record<string, FolderRole> = {
@@ -68,7 +70,23 @@ class Platform {
     if (app.folder !== folder) await app.selectFolder(folder);
     if (!app.messages.some((m) => m.uid === uid)) await app.loadMessages();
     app.selectedUid = uid;
+    if (phone.on) {
+      // iPhone (notification tap): Mail tab; the reader for the message, or just its list when only selecting.
+      phone.tab("mail");
+      if (selectOnly) phone.nav = openList(phone.nav); else await phone.openMessage(uid);
+      return;
+    }
     if (!selectOnly) await app.open(uid);
+  }
+
+  /** iPhone: a tapped notification is waiting in the native side; open what it announced. Harmless anywhere else. */
+  async drainTap(tries = 0) {
+    // Cold start: the accounts may not be loaded yet. Leave the tap in the native side and look again shortly.
+    if (!app.accounts.length && tries < 10) { window.setTimeout(() => { void this.drainTap(tries + 1); }, 800); return; }
+    try {
+      const m = await platformApi.takeNotificationTap();
+      if (m) await this.openMessage(m.account, m.folder, m.uid, m.selectOnly === true);
+    } catch { /* nothing to open */ }
   }
 
   openMailto(d: MailtoDraft) {
@@ -92,7 +110,12 @@ class Platform {
     ]);
     // A cold launch from a mailto: link queued it before the window existed.
     const t = window.setTimeout(() => { void this.drainMailto(); }, 600);
-    return () => { clearTimeout(t); offs.forEach((f) => f()); };
+    // iPhone: a cold launch from a notification tap (give the accounts a moment to load), and taps while the app is
+    // running (the native side dispatches "miramail-tap"; it carries no data, the page asks for it).
+    const tap = () => { void this.drainTap(); };
+    const t2 = phone.on ? window.setTimeout(tap, 1500) : 0;
+    if (phone.on) window.addEventListener("miramail-tap", tap);
+    return () => { clearTimeout(t); clearTimeout(t2); window.removeEventListener("miramail-tap", tap); offs.forEach((f) => f()); };
   }
 }
 

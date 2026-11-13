@@ -13,6 +13,9 @@ use tauri::{AppHandle, Emitter, Manager};
 pub const CLICK_WINDOW: Duration = Duration::from_secs(8);
 /// More new messages than this in one poll collapse into a single "N new messages" notification.
 const MAX_INDIVIDUAL: usize = 3;
+/// The iPhone background check collapses above this (it can find more at once than a live poll).
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+pub const MAX_INDIVIDUAL_BG: usize = 5;
 const MAX_TEXT: usize = 120;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +40,12 @@ fn clip(s: &str) -> String {
 /// What to show for `arrivals`, honouring per-account switches and the preview setting. Previews off: no sender,
 /// no subject (only "New mail" + the account), so nothing readable sits on the lock screen.
 pub fn plan(arrivals: &[Recent], prefs: &PlatformPrefs, account_count: usize) -> Vec<Spec> {
+    plan_with(arrivals, prefs, account_count, MAX_INDIVIDUAL)
+}
+
+/// [`plan`] with a chosen limit for how many individual notifications are shown before they collapse into a summary.
+/// One decision for the Mac live poll and the iPhone background check; only the limit differs.
+pub fn plan_with(arrivals: &[Recent], prefs: &PlatformPrefs, account_count: usize, max_individual: usize) -> Vec<Spec> {
     if !prefs.notify {
         return Vec::new();
     }
@@ -44,13 +53,13 @@ pub fn plan(arrivals: &[Recent], prefs: &PlatformPrefs, account_count: usize) ->
     if wanted.is_empty() {
         return Vec::new();
     }
-    if wanted.len() > MAX_INDIVIDUAL {
+    if wanted.len() > max_individual {
         let mut accts: Vec<&str> = wanted.iter().map(|r| r.account.as_str()).collect();
         accts.sort_unstable();
         accts.dedup();
         return vec![Spec {
             title: format!("{} new messages", wanted.len()),
-            body: if account_count > 1 { clip(&accts.join(", ")) } else { String::new() },
+            body: if account_count > 1 && (prefs.notify_preview || !cfg!(target_os = "ios")) { clip(&accts.join(", ")) } else { String::new() },
             target: None,
         }];
     }
@@ -58,6 +67,8 @@ pub fn plan(arrivals: &[Recent], prefs: &PlatformPrefs, account_count: usize) ->
         .into_iter()
         .map(|r| {
             let acct = if account_count > 1 { clip(&r.account) } else { String::new() };
+            // iPhone, previews off: no account address on the lock screen (the title already says "New mail").
+            let acct_neutral = if cfg!(target_os = "ios") { String::new() } else { acct.clone() };
             if prefs.notify_preview {
                 let subject = r.subject.as_deref().map(clip).filter(|s| !s.is_empty()).unwrap_or_else(|| "(no subject)".to_string());
                 Spec {
@@ -66,7 +77,7 @@ pub fn plan(arrivals: &[Recent], prefs: &PlatformPrefs, account_count: usize) ->
                     target: Some(r.clone()),
                 }
             } else {
-                Spec { title: "New mail".to_string(), body: acct, target: Some(r.clone()) }
+                Spec { title: "New mail".to_string(), body: acct_neutral, target: Some(r.clone()) }
             }
         })
         .collect()
@@ -76,18 +87,40 @@ fn app_is_focused(app: &AppHandle) -> bool {
     app.webview_windows().values().any(|w| w.is_focused().unwrap_or(false))
 }
 
-/// Post one local notification. Errors (no bundle, permission denied) are ignored by callers: the system drops it.
-pub fn deliver(title: &str, body: &str, sound: bool) -> Result<(), String> {
-    crate::native::notifications::deliver(title, body, sound)
+/// Request identifier of a notification that announces one message ("mm:<uid>:<account>"): the iPhone tap handler
+/// (plugins/mailcheck, `TapDelegate.parse`) reads it back to open that message. Only INBOX mail is announced.
+pub fn target_id(r: &Recent) -> String {
+    format!("mm:{}:{}", r.uid, r.account)
 }
 
-fn show(spec: &Spec, sound: bool) -> Result<(), String> {
-    deliver(&spec.title, &spec.body, sound)
+/// Post one local notification. Errors (no bundle, permission denied) are ignored by callers: the system drops it.
+pub fn deliver(title: &str, body: &str, sound: bool) -> Result<(), String> {
+    deliver_id(title, body, sound, None)
+}
+
+fn deliver_id(title: &str, body: &str, sound: bool, id: Option<&str>) -> Result<(), String> {
+    crate::native::notifications::deliver(title, body, sound, id)
+}
+
+pub fn show(spec: &Spec, sound: bool) -> Result<(), String> {
+    // The identifier only matters on iPhone (tap -> open that message); macOS keeps its anonymous ids.
+    let id = if cfg!(target_os = "ios") { spec.target.as_ref().filter(|t| t.folder.eq_ignore_ascii_case("INBOX")).map(target_id) } else { None };
+    deliver_id(&spec.title, &spec.body, sound, id.as_deref())
+}
+
+/// [`show`], waiting until the system has accepted the notification (iPhone background check).
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+pub async fn show_confirmed(spec: &Spec, sound: bool) -> Result<(), String> {
+    let id = spec.target.as_ref().filter(|t| t.folder.eq_ignore_ascii_case("INBOX")).map(target_id);
+    crate::native::notifications::deliver_confirmed(&spec.title, &spec.body, sound, id.as_deref()).await
 }
 
 /// New unread INBOX mail was detected. Suppressed while a MiraMail window is focused (the user is looking at it).
+/// iPhone: never posts. The live poller runs only while the user is in front of the app (where iOS would not show it
+/// either, see `TapDelegate.willPresent`), and mail that arrives while they are away is announced by the background
+/// check (bgcheck.rs); this also keeps the permission prompt out of the poller.
 pub fn on_arrivals(app: &AppHandle, prefs: &PlatformPrefs, accounts: &[String], arrivals: Vec<Recent>) {
-    if !prefs.notify || app_is_focused(app) {
+    if cfg!(target_os = "ios") || !prefs.notify || app_is_focused(app) {
         return;
     }
     let specs = plan(&arrivals, prefs, accounts.len());
@@ -103,6 +136,9 @@ pub fn on_arrivals(app: &AppHandle, prefs: &PlatformPrefs, accounts: &[String], 
         }
         for spec in specs {
             if show(&spec, sound).is_ok() {
+                // macOS only: "the app was focused soon after a notification" means the user clicked it. On iPhone a tap
+                // reaches the app through the notification delegate instead (plugins/mailcheck).
+                #[cfg(not(target_os = "ios"))]
                 if let Some(t) = spec.target {
                     app.state::<BadgeState>().note_notified(t);
                 }
@@ -135,10 +171,38 @@ pub struct OpenMessage {
 pub async fn notify_test(app: AppHandle) -> Result<(), String> {
     let prefs = app.state::<crate::plat_prefs::PlatformState>().get();
     if !crate::native::notifications::ensure_permission().await? {
-        return Err("Notifications are turned off for MiraMail. Allow them in System Settings > Notifications.".into());
+        return Err(if cfg!(target_os = "ios") {
+            "Notifications are turned off for MiraMail. Allow them in the Settings app > Notifications > MiraMail.".into()
+        } else {
+            "Notifications are turned off for MiraMail. Allow them in System Settings > Notifications.".into()
+        });
     }
-    let spec = Spec { title: "MiraMail".into(), body: "Notifications are working.".into(), target: None };
-    show(&spec, prefs.notify_sound)
+    // iPhone: the id lets the notification delegate show this one as a banner while the app is open.
+    let id = if cfg!(target_os = "ios") { Some("miramail-test") } else { None };
+    deliver_id("MiraMail", "Notifications are working.", prefs.notify_sound, id)
+}
+
+/// iPhone: the message a tapped notification announced (taken: returned once). The page asks for it at start-up and
+/// whenever the native side signals a tap. Previews off: only select the message, so it is not marked read unseen.
+/// Always `None` on a Mac (a click is detected by `on_focus_gained` there).
+#[tauri::command]
+pub async fn notification_tap(app: AppHandle) -> Option<OpenMessage> {
+    #[cfg(target_os = "ios")]
+    {
+        let t = tauri_plugin_mailcheck::take_tap(&app)?;
+        let st = app.state::<crate::state::AppState>();
+        // Only INBOX mail of an account that still exists is announced; anything else is ignored.
+        if !t.folder.eq_ignore_ascii_case("INBOX") || !st.storage.list_accounts().ok()?.iter().any(|a| a.email == t.account) {
+            return None;
+        }
+        let select_only = !app.state::<crate::plat_prefs::PlatformState>().get().notify_preview;
+        Some(OpenMessage { account: t.account, folder: t.folder, uid: t.uid, select_only })
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = app;
+        None
+    }
 }
 
 #[cfg(test)]
@@ -194,6 +258,24 @@ mod tests {
         assert!(s[0].target.is_none() && s[0].body.is_empty());
         let s = plan(&rows[..3], &on(), 1);
         assert_eq!(s.len(), 3, "three still show individually");
+    }
+
+    #[test]
+    fn the_limit_before_a_summary_is_a_parameter() {
+        let rows: Vec<Recent> = (1..=5).map(|i| r("a@x.org", i, "S", "x")).collect();
+        assert_eq!(plan_with(&rows, &on(), 1, MAX_INDIVIDUAL_BG).len(), 5, "five show individually on the phone");
+        assert_eq!(plan_with(&rows, &on(), 1, MAX_INDIVIDUAL).len(), 1, "the Mac default still collapses them");
+        let six: Vec<Recent> = (1..=6).map(|i| r("a@x.org", i, "S", "x")).collect();
+        let s = plan_with(&six, &on(), 1, MAX_INDIVIDUAL_BG);
+        assert_eq!((s.len(), s[0].title.as_str()), (1, "6 new messages"));
+        assert_eq!(plan(&rows[..3], &on(), 1), plan_with(&rows[..3], &on(), 1, 3), "plan() is plan_with(3)");
+    }
+
+    #[test]
+    fn target_id_keeps_colons_of_the_account_and_never_carries_text() {
+        let id = target_id(&r("a:b@x.org", 42, "Ann Secret", "Salary"));
+        assert_eq!(id, "mm:42:a:b@x.org");
+        assert!(!id.contains("Ann") && !id.contains("Salary"));
     }
 
     #[test]

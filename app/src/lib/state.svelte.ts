@@ -4,7 +4,10 @@ import { MARK_READ_DELAY_MS } from "./prefs-model";
 import { prefs } from "./prefs.svelte";
 import { BULK_STEP, CACHE_PAGE, coversDate, LOAD_ALL_CONFIRM_ABOVE, fmtN, mergeRows, OLDER_STEP, remainingOnServer } from "./older";
 import { thisDevice } from "./device";
-import type { AccountInfo, ConnState, Folder, FolderRole, LiveStatus, MessageBody, MessageSummary, Outgoing } from "./types";
+import { fg, isDeferred } from "./foreground";
+import { bodyKeyOf, gateFor, msgKey, type CheckState, type GateState } from "./linkgate";
+import type { SafetyReport } from "./safety";
+import type { AccountInfo, ConnState, Folder, FolderRole, LiveStatus, MessageAnalysis, MessageBody, MessageSummary, Outgoing } from "./types";
 
 export type Theme = "system" | "dark" | "light" | "contrast";
 const ROLE_ORDER: FolderRole[] = ["inbox", "sent", "drafts", "archive", "junk", "trash", "other"];
@@ -29,6 +32,23 @@ class AppState {
   selectedUid = $state<number | null>(null);
   body = $state<MessageBody | null>(null);
   bodyLoading = $state(false);
+  /** Second step of opening a message (images / trackers, invite): null until it arrives, and when it failed (the Reader then hides those sections). */
+  analysis = $state<MessageAnalysis | null>(null);
+  analysisPending = $state(false);
+  private analysisFor = "";
+  /** Safety report (link / sender warning signs) for the open message; null until it arrives or when it failed. */
+  safety = $state<SafetyReport | null>(null);
+  /** The two local checks of the open message. Its links stay inert until both are "ok" (lib/linkgate.ts). */
+  checkAnalysis = $state<CheckState>("pending");
+  checkSafety = $state<CheckState>("pending");
+  /** The message (bodyKeyOf) the two checks above were run for; "" until a body arrived. */
+  checksKey = $state("");
+  private safetyFor = "";
+  private linksLogged = -1;
+  /** Gate of the message ON SCREEN: results of checks run for any other message never count (lib/linkgate.ts). */
+  get linkGate(): GateState { return gateFor(this.checksKey, bodyKeyOf(this.body?.summary), this.checkAnalysis, this.checkSafety); }
+  /** The key whose links may be live now ("" when none). */
+  get readyKey(): string { return this.linkGate === "ready" ? this.checksKey : ""; }
   imagesAllowed = $state(false);
   /** When images are allowed: whether tracker-verdict images were left out. */
   skipTrackers = $state(true);
@@ -82,6 +102,8 @@ class AppState {
   }
   private toastId = 0;
   private bodyToken = 0;
+  /** performance.now() when the user opened the current message (UI timing lines only). */
+  openT0 = 0;
 
   /** Quick-filter chips; combined (AND) with `query`. Remembered per folder in memory only. */
   chips = $state<Chips>({ ...NO_CHIPS });
@@ -111,7 +133,8 @@ class AppState {
   get current(): AccountInfo | undefined { return this.accounts.find((a) => a.email === this.account); }
   get selected(): MessageSummary | undefined { return this.messages.find((m) => m.uid === this.selectedUid); }
 
-  fail(e: unknown) { this.notify(errMsg(e), "error"); }
+  /** Refusals while the user is away (iPhone) are not errors: the work runs when they are back. */
+  fail(e: unknown) { if (!isDeferred(e)) this.notify(errMsg(e), "error"); }
   notify(msg: string, kind: "error" | "info" = "info") {
     const id = ++this.toastId;
     this.toast = { msg, kind, id };
@@ -130,6 +153,7 @@ class AppState {
   }
   cycleTheme() { this.setTheme(this.theme === "system" ? "light" : this.theme === "light" ? "dark" : "system"); }
 
+  private offEnter: (() => void) | undefined;
   async init() {
     const t = lsGet("miramail.theme");
     this.setTheme(t === "dark" || t === "light" || t === "contrast" ? t : "system");
@@ -138,6 +162,9 @@ class AppState {
       if (this.accounts.length) await this.selectAccount(this.accounts[0].email);
     } catch (e) { this.fail(e); }
     this.ready = true;
+    // iPhone: what was held back while the user was away (or during a background launch) runs when they arrive.
+    this.offEnter?.();
+    this.offEnter = fg.onEnter(() => { void this.onForeground(); });
     void onNewMail((e) => { void this.onNew(e.account, e.folder); });
     void onStatus((e) => { this.status[e.account] = e.state; });
     void onSynced((e) => { void this.onSynced(e.account, e.folders); });
@@ -166,6 +193,7 @@ class AppState {
   }
 
   async selectAccount(email: string) {
+    this.bodyToken++; this.checksKey = ""; // an open still in flight never lands in the new account
     this.account = email; this.folders = []; this.messages = []; this.body = null; this.selectedUid = null; this.resetOlder();
     this.filterMem.clear(); this.clearFilters();
     this.folder = "INBOX";
@@ -178,8 +206,19 @@ class AppState {
     void this.sync(true);
   }
 
+  /** iPhone, the user is back (or arrived after a background launch): refresh the folder list (only the cached one
+   * was served while away), unread counts and the open folder. */
+  async onForeground() {
+    const acc = this.account;
+    if (!acc) return;
+    try { const f = await api.listFolders(acc); if (acc === this.account) this.folders = f; } catch { /* keep the cached list */ }
+    void this.refreshUnread(acc);
+    void this.sync(true);
+  }
+
   async selectFolder(name: string) {
     this.rememberFilter();
+    this.bodyToken++; this.checksKey = ""; // an open still in flight never lands in the new folder
     this.folder = name; this.messages = []; this.body = null; this.selectedUid = null; this.resetOlder();
     const mem = this.account ? this.filterMem.get(liveKey(this.account, name)) : undefined;
     this.query = mem?.query ?? ""; this.chips = { ...(mem?.chips ?? NO_CHIPS) };
@@ -307,8 +346,10 @@ class AppState {
   }
   get inboxName() { return this.folders.find((f) => f.role === "inbox")?.name ?? "INBOX"; }
 
+  /** iPhone: a no-op while the user is away (only the background check reads mail then); `onForeground` syncs. */
   async sync(silent = false) {
-    if (!this.account || this.syncing) return;
+    await fg.ready();
+    if (!fg.present || !this.account || this.syncing) return;
     const [acc, fol] = [this.account, this.folder];
     this.syncing = true;
     try {
@@ -325,7 +366,7 @@ class AppState {
   async onNew(account: string, folder: string) {
     let total: number | null = null;
     // The backend already synced non-INBOX folders (background loop / live watcher) before emitting.
-    if (folder === "INBOX" || folder === this.inboxName) {
+    if ((folder === "INBOX" || folder === this.inboxName) && fg.present) {
       try { total = (await api.syncFolder(account, folder)).serverTotal; } catch { /* status dot shows connectivity */ }
     } else {
       this.newHandled.add(liveKey(account, folder));
@@ -402,9 +443,11 @@ class AppState {
     if (!account) return;
     this.setUnread(account, folder, (this.unreadByFolder[account]?.[folder] ?? 0) + delta);
   }
-  /** Fetch per-folder unseen counts (IMAP STATUS). Failures are silent; the status dot shows connectivity. */
+  /** Fetch per-folder unseen counts (IMAP STATUS). Failures are silent; the status dot shows connectivity.
+   * iPhone: skipped while the user is away; `onForeground` asks again when they are back. */
   async refreshUnread(account = this.account) {
-    if (!account) return;
+    await fg.ready();
+    if (!account || !fg.present) return;
     try { this.unreadByFolder[account] = await api.unreadCounts(account); } catch { /* ignore */ }
   }
 
@@ -412,26 +455,52 @@ class AppState {
   async open(uid: number, allowImages = false, skipTrackers = true) {
     if (!this.account) return;
     const token = ++this.bodyToken;
+    const [acc, fol] = [this.account, this.folder];
+    // Still the open the user asked for, in the same account and folder (both can change while we await).
+    const current = () => token === this.bodyToken && this.account === acc && this.folder === fol;
+    this.openT0 = performance.now();
+    this.checksKey = "";
     clearTimeout(this.seenTimer);
+    // Show the header + "Loading message…" at once, even while the sender check below is awaited. A body (and its
+    // checks) of any other message - another account or folder with the same UID included - never stays on screen.
+    // UIDVALIDITY from the list row (unknown on both sides -> 0).
+    const key = msgKey(this.account, this.folder, this.messages.find((x) => x.uid === uid)?.uidvalidity ?? 0, uid);
+    const sb = this.body?.summary;
+    if (sb && msgKey(sb.account, sb.folder, sb.uidvalidity ?? 0, sb.uid) !== key) this.body = null;
+    if (this.analysis && this.analysisFor !== key) this.analysis = null;
+    // Every open runs both checks again (links go inert until they finish); only the same message keeps its last
+    // report on screen meanwhile.
+    if (this.safetyFor !== key) this.safety = null;
+    this.safetyFor = key;
+    this.checkSafety = "pending";
+    this.checkAnalysis = "pending";
+    this.analysisPending = false;
+    this.analysisFor = key;
+    this.bodyLoading = true;
     const mode = prefs.v.markRead;
     const markSeen = mode === "immediately";
-    const [acc, fol] = [this.account, this.folder];
     this.selectedUid = uid;
     // Senders the user chose "always load images" for: images load (tracker-flagged ones are still skipped).
     // ... but only when this very message is DKIM-verified for its From domain (From text alone is forgeable).
     if (!allowImages && this.senderAllowed) {
       const ok = await this.senderAllowed(this.messages.find((x) => x.uid === uid)?.from?.address, acc, fol, uid);
-      if (token !== this.bodyToken) return;
+      if (!current()) return;
       if (ok) allowImages = true;
+      api.perfLog("sender_check", performance.now() - this.openT0);
     }
     this.imagesAllowed = allowImages;
     this.skipTrackers = skipTrackers;
     this.bodyLoading = true;
     if (!allowImages) this.body = null;
     try {
-      const b = await api.getMessage(this.account, this.folder, uid, allowImages, skipTrackers, markSeen);
-      if (token !== this.bodyToken) return;
+      const b = await api.getMessage(acc, fol, uid, allowImages, skipTrackers, markSeen);
+      if (!current()) return;
+      api.perfLog("body_rx", performance.now() - this.openT0);
       this.body = b;
+      // The checks run for the message actually shown (its own summary, UIDVALIDITY included).
+      this.checksKey = bodyKeyOf(b.summary);
+      void this.runAnalysis(token, b.summary, allowImages, skipTrackers);
+      void this.runSafety(token, b.summary);
       const m = this.messages.find((x) => x.uid === uid);
       if (m && !m.flags.seen) {
         if (markSeen) {
@@ -443,8 +512,70 @@ class AppState {
           }, MARK_READ_DELAY_MS);
         }
       }
-    } catch (e) { if (token === this.bodyToken) this.fail(e); }
-    if (token === this.bodyToken) this.bodyLoading = false;
+    } catch (e) { if (current()) this.fail(e); }
+    if (current()) this.bodyLoading = false;
+  }
+
+  /** One check finished: the first time both are ok for this open, log when the links became usable. */
+  private checked(token: number) {
+    if (token === this.bodyToken && this.linkGate === "ready" && this.linksLogged !== token) {
+      this.linksLogged = token;
+      api.perfLog("links_enabled", performance.now() - this.openT0);
+    }
+  }
+
+  /** Local safety report (warning signs; no network). Its links are not usable until it has finished. */
+  private async runSafety(token: number, m: MessageSummary) {
+    const key = bodyKeyOf(m);
+    const mine = () => token === this.bodyToken && key === this.checksKey;
+    if (!mine()) return;
+    this.checkSafety = "pending";
+    try {
+      const r = await api.safetyReport(m.account, m.folder, m.uid, m.uidvalidity);
+      if (!mine()) return;
+      api.perfLog("safety_rx", performance.now() - this.openT0);
+      this.safety = r;
+      this.checkSafety = "ok";
+    } catch {
+      if (!mine()) return;
+      this.safety = null;
+      this.checkSafety = "failed"; // links stay inert; the Reader offers a retry
+    }
+    this.checked(token);
+  }
+
+  /** "Couldn't check links - tap to retry": run the failed check(s) again for the message on screen. */
+  retryChecks() {
+    const b = this.body;
+    if (!b) return;
+    const token = this.bodyToken;
+    if (bodyKeyOf(b.summary) !== this.checksKey) return;
+    if (this.checkAnalysis === "failed") void this.runAnalysis(token, b.summary, this.imagesAllowed, this.skipTrackers);
+    if (this.checkSafety === "failed") void this.runSafety(token, b.summary);
+  }
+
+  /** Tracker analysis, invite and (images allowed + trackers skipped) the deny-set re-render, after the body is on screen. */
+  private async runAnalysis(token: number, m: MessageSummary, allow: boolean, skip: boolean) {
+    const key = bodyKeyOf(m);
+    const mine = () => token === this.bodyToken && key === this.checksKey;
+    if (!mine()) return;
+    this.analysisPending = true;
+    this.checkAnalysis = "pending";
+    try {
+      const a = await api.messageAnalysis(m.account, m.folder, m.uid, allow, skip, m.uidvalidity);
+      if (!mine()) return;
+      api.perfLog("analysis_rx", performance.now() - this.openT0);
+      this.analysis = a;
+      // Only when the deny-set changed the html does the frame update.
+      if (a.html != null && this.body && bodyKeyOf(this.body.summary) === key && this.body.html !== a.html) this.body = { ...this.body, html: a.html, blockedRemoteCount: a.blockedRemoteCount };
+      this.checkAnalysis = "ok";
+    } catch {
+      if (!mine()) return;
+      this.analysis = null; // the image / invite sections stay hidden; links stay inert (retry offered)
+      this.checkAnalysis = "failed";
+    }
+    this.analysisPending = false;
+    this.checked(token);
   }
 
   move(delta: number, openIt = false) {

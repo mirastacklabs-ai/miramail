@@ -9,9 +9,14 @@ import { parseEntry } from "./lib/detach";
 import { installErrorSurface } from "./lib/errors";
 import { onMailLink } from "./lib/api";
 import { handleMailLink } from "./lib/links";
+import { startForeground } from "./lib/foreground";
+import { isDeferredMsg } from "./lib/foreground-model";
+
+// iPhone: is the user in front of the app? Network work waits for it (lib/foreground.ts). Always "yes" on a Mac.
+void startForeground();
 
 // Uncaught exceptions / rejections (including ones thrown while Svelte renders) show as an error toast.
-installErrorSurface(window, (msg) => app.notify(msg, "error"));
+installErrorSurface(window, (msg) => { if (!isDeferredMsg(msg)) app.notify(msg, "error"); });
 prefs.init();
 // Cmd+, opens Preferences (App.svelte's key handler ignores modified keys).
 window.addEventListener("keydown", (e) => {

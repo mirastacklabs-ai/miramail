@@ -12,6 +12,9 @@ settingGroups:
     base:
       PRODUCT_NAME: MiraMail
       PRODUCT_BUNDLE_IDENTIFIER: ai.mirastacklabs.miramail.spike
+packages:
+  tauri-plugin-mailcheck:
+    path: ../../plugins/mailcheck/ios
 targetTemplates:
   app:
     type: application
@@ -45,6 +48,9 @@ targets:
       path: miramail_iOS/Info.plist
       properties:
         LSRequiresIPhoneOS: true
+        # Background new-mail check (BGAppRefreshTask, no push). Same id as plugins/mailcheck/ios/Sources/MailCheckPlugin.swift.
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [ai.mirastacklabs.miramail.refresh]
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:
@@ -77,6 +83,8 @@ targets:
     dependencies:
       - framework: libapp.a
         embed: false
+      - package: tauri-plugin-mailcheck
+        product: tauri-plugin-mailcheck
       - sdk: CoreGraphics.framework
       - sdk: Metal.framework
       - sdk: MetalKit.framework

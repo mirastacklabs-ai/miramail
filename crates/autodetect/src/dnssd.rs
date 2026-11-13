@@ -16,7 +16,7 @@ const FLAGS_MORE_COMING: u32 = 0x1; // kDNSServiceFlagsMoreComing: more results 
 const FLAGS_ADD: u32 = 0x2;
 const FLAGS_RETURN_INTERMEDIATES: u32 = 0x1000; // also deliver NoSuchRecord instead of waiting
 /// After the first batch ends, keep listening this long: mDNSResponder may deliver the rest of an RRset in later callbacks.
-const GRACE: Duration = Duration::from_millis(250);
+const GRACE: Duration = Duration::from_millis(100);
 const ERR_NO_ERROR: i32 = 0;
 const ERR_NO_SUCH_NAME: i32 = -65538;
 const ERR_NO_SUCH_RECORD: i32 = -65554;
@@ -127,7 +127,10 @@ fn apply_reply(
     } else if rrclass == CLASS_IN && rrtype == ctx.want {
         if let Some(b) = rdata() {
             if flags & FLAGS_ADD != 0 {
-                ctx.records.push(b);
+                // The same answer arrives once per interface: keep one copy.
+                if !ctx.records.contains(&b) {
+                    ctx.records.push(b);
+                }
             } else if let Some(i) = ctx.records.iter().position(|r| *r == b) {
                 ctx.records.remove(i); // the record went away (no Add flag): drop the matching rdata
             }
@@ -195,7 +198,7 @@ fn drive(sd: DnsServiceRef, ctx: &Mutex<Ctx>, deadline: Instant) -> Result<(), S
             return Ok(());
         }
         if now >= deadline {
-            let c = ctx.lock().map_err(|_| "DNS state poisoned".to_string())?;
+            let c = ctx.lock().unwrap_or_else(|p| p.into_inner());
             return if c.records.is_empty() && c.error.is_none() { Err("DNS lookup timed out".into()) } else { Ok(()) };
         }
         let mut p = PollFd { fd, events: POLLIN, revents: 0 };
@@ -214,7 +217,8 @@ fn drive(sd: DnsServiceRef, ctx: &Mutex<Ctx>, deadline: Instant) -> Result<(), S
         }
         // SAFETY: sd is live; this invokes on_reply on this thread.
         let rc = unsafe { DNSServiceProcessResult(sd) };
-        let c = ctx.lock().map_err(|_| "DNS state poisoned".to_string())?;
+        // A poisoned lock (callback panicked) is recovered so `failed` is still seen below.
+        let c = ctx.lock().unwrap_or_else(|p| p.into_inner());
         if rc != ERR_NO_ERROR {
             // Keep what was already collected; only a failure with nothing to show is an error.
             return if c.records.is_empty() { Err(format!("DNS-SD process error ({rc})")) } else { Ok(()) };
@@ -262,6 +266,15 @@ mod tests {
         // removing the last one leaves nothing, so the batch is not "complete"
         apply_reply(&mut c, 0, ERR_NO_ERROR, TYPE_MX, CLASS_IN, false, || Some(b"b".to_vec()));
         assert!(c.records.is_empty() && !c.complete);
+    }
+
+    #[test]
+    fn identical_answers_from_several_interfaces_are_kept_once() {
+        let mut c = Ctx { want: TYPE_MX, ..Default::default() };
+        add(&mut c, TYPE_MX, true, b"a");
+        add(&mut c, TYPE_MX, false, b"a");
+        assert_eq!(c.records, vec![b"a".to_vec()]);
+        assert!(c.complete);
     }
 
     #[test]

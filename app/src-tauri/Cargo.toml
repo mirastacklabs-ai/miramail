@@ -34,11 +34,18 @@ rusqlite = { version = "0.41", features = ["bundled"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSWindow", "NSResponder", "NSWorkspace"] }
+objc2-service-management = "0.3"
+
+# Local notifications (UNUserNotificationCenter) are shared by macOS and iPhone.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSURL", "NSString", "NSBundle", "NSError", "NSObject"] }
 objc2-user-notifications = { version = "0.3", features = ["block2"] }
-objc2-service-management = "0.3"
+
+# iPhone background new-mail check (BGAppRefreshTask) and notification taps: the Swift plugin is compiled for iOS only.
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri-plugin-mailcheck = { path = "plugins/mailcheck" }
 
 [dev-dependencies]
 tempfile = "3"

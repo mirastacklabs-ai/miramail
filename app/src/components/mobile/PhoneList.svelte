@@ -130,10 +130,11 @@
     delete offsets[rowKey(m)];
     if (!swipeOk(m)) return;
     if (!stands(r)) { await app.moveTo(id, m.uid); return; } // same path as the Mac: batch mover, Undo toast
-    if (id === "inbox") { void org.moveUids(r.uids, { role: "inbox" }); return; }
+    const { account, folder } = { account: app.account, folder: app.folder }; // captured: the user may switch while the dialog is open
+    if (id === "inbox") { void org.moveUids(r.uids, { role: "inbox" }, folder, account); return; }
     const members = r.uids.map((u) => app.messages.find((x) => x.uid === u)).filter((x): x is MessageSummary => !!x);
     const c = threadConfirm(members.length ? members : r.uids.map(() => ({ subject: "", from: null })), id === "archive" ? "Archive" : "Trash");
-    if (await app.ask({ title: c.title, body: c.body, ok: id === "archive" ? "Archive" : "Move to Trash", danger: id !== "archive" })) void org.moveUids(r.uids, { role: id });
+    if (await app.ask({ title: c.title, body: c.body, ok: id === "archive" ? "Archive" : "Move to Trash", danger: id !== "archive" })) void org.moveUids(r.uids, { role: id }, folder, account);
   }
   /** VoiceOver / button route to the same read toggle as the right swipe. */
   function toggleRead(r: ListRow<MessageSummary>) {
@@ -499,7 +500,7 @@
   .under.right { right: 0; width: 144px; }
   .ubtn { flex: 1; border: 0; color: #0a0a0a; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; font-size: 0.75rem; background: var(--accent); }
   .ubtn.trash { background: var(--signal); }
-  .item { position: relative; display: flex; align-items: stretch; background: var(--bg); touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+  .item { position: relative; display: flex; align-items: stretch; background: var(--bg); touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   .item.anim { transition: transform .18s ease-out; }
   .row { flex: 1; min-width: 0; min-height: 76px; display: flex; gap: 4px; align-items: flex-start; background: none; border: 0; padding: 10px 14px 10px 4px; text-align: left; color: var(--text); }
   .row.picked { background: color-mix(in srgb, var(--accent) 14%, transparent); }

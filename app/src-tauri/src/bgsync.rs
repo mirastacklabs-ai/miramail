@@ -10,7 +10,6 @@ use std::future::Future;
 use std::path::Path;
 use std::time::Duration;
 use tokio::sync::watch;
-use tokio::time::sleep;
 
 // ---------------------------------------------------------------- settings
 
@@ -35,11 +34,13 @@ pub struct SyncSettings {
     pub max_live_folders: u32,
     /// How many of the newest messages a folder's FIRST sync fetches (applies to the next first sync).
     pub initial_sync_messages: u32,
+    /// Download the bodies of new mail in the background so the first open is instant (see `prefetch.rs`).
+    pub prefetch: bool,
 }
 
 impl Default for SyncSettings {
     fn default() -> Self {
-        SyncSettings { folders_per_cycle: 2, interval_seconds: 60, max_live_folders: 5, initial_sync_messages: DEFAULT_INITIAL }
+        SyncSettings { folders_per_cycle: 2, interval_seconds: 60, max_live_folders: 5, initial_sync_messages: DEFAULT_INITIAL, prefetch: true }
     }
 }
 
@@ -72,7 +73,13 @@ impl SyncSettings {
             interval_seconds: self.interval_seconds.clamp(*INTERVAL_RANGE.start(), *INTERVAL_RANGE.end()),
             max_live_folders: self.max_live_folders.clamp(*LIVE_RANGE.start(), *LIVE_RANGE.end()),
             initial_sync_messages: self.initial_sync_messages.clamp(*INITIAL_RANGE.start(), *INITIAL_RANGE.end()),
+            prefetch: self.prefetch,
         }
+    }
+
+    /// Same sync timing / limits; only options that do not affect the loops (`prefetch`) may differ.
+    pub fn same_sync(&self, o: &Self) -> bool {
+        SyncSettings { prefetch: o.prefetch, ..*self } == *o
     }
 
     pub fn interval(&self) -> Duration {
@@ -238,12 +245,17 @@ pub async fn run_loop<O: SyncOps>(ops: O, mut settings: watch::Receiver<SyncSett
         let cfg = *settings.borrow();
         let base = if first { FIRST_TICK.min(cfg.interval()) } else { tick_delay(cfg.interval(), sched.failures()) };
         let wait = base + Duration::from_millis(ops.jitter_ms(jitter_cap(cfg.interval()).as_millis() as u64));
-        tokio::select! {
-            _ = sleep(wait) => {}
-            _ = stopped(&mut stop) => return,
-            r = settings.changed(), if settings_open => {
-                if r.is_err() { settings_open = false; }
-                continue 'outer; // apply the new interval immediately
+        let wake = tokio::time::Instant::now() + wait;
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep_until(wake) => break,
+                _ = stopped(&mut stop) => return,
+                r = settings.changed(), if settings_open => {
+                    if r.is_err() { settings_open = false; }
+                    // A change that only touches an option the loop does not use (prefetch) keeps the timer running.
+                    if settings.borrow().same_sync(&cfg) { continue; }
+                    continue 'outer; // apply the new interval immediately
+                }
             }
         }
         first = false;
@@ -292,7 +304,8 @@ pub mod real {
 
     impl SyncOps for AppOps {
         fn online(&self) -> bool {
-            self.app.state::<AppState>().inbox_status(&self.email) == Some("connected")
+            // iPhone: never while the user is away (the loop is being stopped then; presence.rs).
+            crate::presence::user_present() && self.app.state::<AppState>().inbox_status(&self.email) == Some("connected")
         }
 
         fn folders(&self) -> Vec<String> {
@@ -414,7 +427,7 @@ mod tests {
     }
 
     fn st(f: u32, i: u32, l: u32) -> SyncSettings {
-        SyncSettings { folders_per_cycle: f, interval_seconds: i, max_live_folders: l, initial_sync_messages: 200 }
+        SyncSettings { folders_per_cycle: f, interval_seconds: i, max_live_folders: l, initial_sync_messages: 200, prefetch: true }
     }
 
     #[test]
@@ -430,6 +443,25 @@ mod tests {
         assert_eq!(st(0, 99999, 99).clamped(), st(1, 3600, 10));
     }
 
+    #[test]
+    fn a_prefetch_only_change_is_not_a_sync_change() {
+        let a = SyncSettings::default();
+        assert!(a.same_sync(&SyncSettings { prefetch: false, ..a }));
+        assert!(!a.same_sync(&SyncSettings { interval_seconds: 61, ..a }));
+    }
+
+    #[test]
+    fn a_settings_file_from_before_the_option_turns_prefetch_on_and_off_is_kept() {
+        let old: Persisted = serde_json::from_str(r#"{"foldersPerCycle":3,"intervalSeconds":60,"maxLiveFolders":5,"initialSyncMessages":200}"#).unwrap();
+        assert!(old.settings.prefetch, "missing key = default on");
+        let off: Persisted = serde_json::from_str(r#"{"prefetch":false}"#).unwrap();
+        assert!(!off.normalized().settings.prefetch);
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join(SETTINGS_FILE);
+        save_config(&p, &Persisted { settings: SyncSettings { prefetch: false, ..SyncSettings::default() }, live_folders: Default::default() }).unwrap();
+        assert!(!load_config(&p).settings.prefetch, "persisted like the other sync prefs");
+    }
+
     fn init(n: u32) -> SyncSettings {
         SyncSettings { initial_sync_messages: n, ..SyncSettings::default() }
     }
@@ -437,6 +469,7 @@ mod tests {
     #[test]
     fn initial_sync_messages_validation() {
         assert_eq!(SyncSettings::default().initial_sync_messages, 200);
+        assert!(SyncSettings::default().prefetch, "download new mail in advance is on by default");
         assert!(init(50).validate().is_ok() && init(5000).validate().is_ok() && init(200).validate().is_ok());
         assert!(init(49).validate().unwrap_err().contains("Initial messages per folder"));
         assert!(init(0).validate().is_err() && init(5001).validate().is_err() && init(u32::MAX).validate().is_err());

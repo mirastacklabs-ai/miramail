@@ -66,19 +66,25 @@ pub struct StorageReport {
 }
 
 #[tauri::command]
-pub fn storage_usage(state: State<'_, AppState>) -> Result<StorageReport, String> {
-    let mut accounts = Vec::new();
-    for a in state.storage.list_accounts().map_err(err)? {
-        accounts.push(AccountStorage { usage: state.storage.cache_usage(&a.email).map_err(err)?, policy: state.storage.cache_policy(&a.email), account: a.email });
-    }
-    Ok(StorageReport { db_bytes: state.storage.db_size_bytes().map_err(err)?, accounts })
+pub async fn storage_usage(state: State<'_, AppState>) -> Result<StorageReport, String> {
+    let storage = state.storage.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut accounts = Vec::new();
+        for a in storage.list_accounts().map_err(err)? {
+            accounts.push(AccountStorage { usage: storage.cache_usage(&a.email).map_err(err)?, policy: storage.cache_policy(&a.email), account: a.email });
+        }
+        Ok(StorageReport { db_bytes: storage.db_size_bytes().map_err(err)?, accounts })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Drop one account's cached bodies (the UI confirms first). Returns how many messages lost their cached body.
 #[tauri::command]
-pub fn storage_clear_bodies(state: State<'_, AppState>, account: String) -> Result<u64, String> {
+pub async fn storage_clear_bodies(state: State<'_, AppState>, account: String) -> Result<u64, String> {
     state.account(&account)?;
-    state.storage.clear_cached_bodies(&account).map_err(err)
+    let storage = state.storage.clone();
+    tauri::async_runtime::spawn_blocking(move || storage.clear_cached_bodies(&account).map_err(err)).await.map_err(|e| e.to_string())?
 }
 
 /// `keep_days` / `max_mb` None = no limit. Stops caching beyond the limit; deletes nothing.

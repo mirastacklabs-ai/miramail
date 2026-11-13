@@ -28,7 +28,9 @@ export function recipients(it: Pick<OutboxItem, "to">, max = 2): string {
 }
 
 /** One plain-words line describing where an entry is. */
-export function describe(it: OutboxItem, now: number): string {
+export function describe(it: OutboxItem, now: number, away = false): string {
+  // iPhone: a due send is held while the user is not in front of the app (nothing mail-changing runs then).
+  if (away && ((it.state === "holding" && it.dueAt <= now) || (it.state === "scheduled" && it.scheduledAt != null && it.scheduledAt <= now))) return "Will send when you reopen MiraMail";
   switch (it.state) {
     case "holding": return it.dueAt > now ? `Sending in ${secondsLeft(it, now)} s` : "Sending…";
     case "sending": return "Sending…";

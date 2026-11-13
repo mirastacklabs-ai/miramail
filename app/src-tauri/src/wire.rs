@@ -225,15 +225,25 @@ pub struct MessageBody {
     pub text: Option<String>,
     pub html: Option<String>,
     pub blocked_remote_count: usize,
-    /// Advisory analysis of every remote image in the raw HTML (loaded or not).
-    pub images: Vec<WireImage>,
     pub attachments: Vec<WireAttachment>,
     pub cc: Vec<Address>,
     /// `Reply-To` mailboxes (empty when absent). Manual Reply honours them and Compose warns when they differ from From.
     pub reply_to: Vec<Address>,
     pub references: Option<String>,
+}
+
+/// The slower, analysis-only part of opening a message (`message_analysis`), sent after the body is already on screen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageAnalysis {
+    /// Advisory analysis of every remote image in the raw HTML (loaded or not).
+    pub images: Vec<WireImage>,
     /// First `text/calendar` part / `.ics` attachment, parsed (null when absent or unusable).
     pub invite: Option<calendar::Invite>,
+    /// Only when images are allowed and trackers are skipped: the HTML re-rendered with the tracker deny-set (the first
+    /// render of that case has every remote image blocked, so nothing tracking is ever requested). Otherwise null.
+    pub html: Option<String>,
+    pub blocked_remote_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -508,22 +518,25 @@ mod tests {
             has_body: true,
             size: 1,
         });
-        let mut body = MessageBody {
+        let body = MessageBody {
             summary,
             text: None,
             html: None,
             blocked_remote_count: 0,
-            images: vec![],
             attachments: vec![],
             cc: vec![],
             reply_to: vec![],
             references: None,
-            invite: None,
         };
         let v = serde_json::to_value(&body).unwrap();
-        assert!(v.get("invite").is_some() && v["invite"].is_null(), "invite must be present as null");
         assert!(v.get("blockedRemoteCount").is_some() && v.get("references").is_some(), "existing fields kept");
         assert!(v["replyTo"].as_array().is_some_and(|a| a.is_empty()), "replyTo must be present as []");
+        assert!(v.get("invite").is_none() && v.get("images").is_none(), "analysis fields travel in MessageAnalysis only");
+
+        let mut body = MessageAnalysis { images: vec![], invite: None, html: None, blocked_remote_count: 0 };
+        let v = serde_json::to_value(&body).unwrap();
+        assert!(v.get("invite").is_some() && v["invite"].is_null(), "invite must be present as null");
+        assert!(v["images"].as_array().is_some_and(|a| a.is_empty()));
 
         let ics = b"BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:u@x\r\nDTSTAMP:20261101T100000Z\r\nDTSTART:20261110T090000Z\r\nDTEND:20261110T100000Z\r\nSUMMARY:S\r\nORGANIZER:mailto:o@x.org\r\nATTENDEE;PARTSTAT=TENTATIVE:mailto:a@x.org\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
         body.invite = calendar::itip::invite_from_ics(ics, &["a@x.org".to_string()], "3", true).unwrap();

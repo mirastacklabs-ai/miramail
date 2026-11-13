@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { api } from "../lib/api";
   import { openLink } from "../lib/links";
   import { app } from "../lib/state.svelte";
@@ -6,7 +7,8 @@
   import { prefs } from "../lib/prefs.svelte";
   import { phone } from "../lib/phone.svelte";
   import { bodyBaseCss } from "../lib/prefs-model";
-  import { addrFull, addrLabel, buildSrcdoc, extractLinks, fmtSize, fullDate, linkAction } from "../lib/util";
+  import { addrFull, buildSrcdoc, extractLinks, fullDate } from "../lib/util";
+  import { bodyKeyOf, countHeld, HOLD_STYLE, holdHtml, holdLinks, OncePerKey, releaseLinks } from "../lib/linkgate";
   import type { Attachment } from "../lib/types";
   import { bannerText, imageStatus, plural, sizeLabel, summarize, warningFor } from "../lib/trackers";
   import InviteCard from "./InviteCard.svelte";
@@ -23,35 +25,79 @@
   const b = $derived(app.body);
   const sel = $derived(app.selected);
   const mode = $derived(readerView.mode);
-  let lastUid = -1;
+  const bodyKey = $derived(bodyKeyOf(b?.summary));
+  let lastKey = "";
   $effect(() => {
-    const u = b?.summary.uid ?? -1;
-    if (u !== lastUid) { lastUid = u; readerView.mode = "html"; }
+    const k = bodyKey;
+    if (k !== lastKey) { lastKey = k; untrack(() => (readerView.mode = "html")); }
   });
 
   const hasHtml = $derived(!!b?.html);
   const showHtml = $derived(hasHtml && mode === "html");
-  const srcdoc = $derived(b?.html ? buildSrcdoc(b.html, app.imagesAllowed, bodyBaseCss(prefs.v)) : "");
-  const links = $derived(b ? extractLinks(b.html) : []);
+  // Every link is held in the HTML string itself (no href ever reaches the frame); `releaseLinks` gives them back in
+  // the frame once the checks finished (lib/linkgate.ts). The srcdoc does not depend on the gate, so release never
+  // reloads the frame.
+  const holdBody = (h: string) => holdHtml(h).html;
+  const srcdoc = $derived(b?.html ? buildSrcdoc(b.html, app.imagesAllowed, bodyBaseCss(prefs.v), HOLD_STYLE, holdBody) : "");
+  // links-effect:start
+  // "Links in this message": extracted once per message body, after the message has painted (it parses the whole
+  // HTML again). The effect reads only the body html and writes untracked: it used to read `linksPending` right after
+  // writing it, so Svelte re-ran it every time the deferred extraction cleared it (one extraction per frame, the
+  // iPhone's 3532 "links_17" lines in a minute).
+  type Link = { url: string; label: string };
+  let linkRes = $state<{ html: string; list: Link[] } | null>(null);
+  const once = new OncePerKey();
+  const bodyHtml = $derived(b?.html ?? null);
+  // Links counted by the hold pass (any case, <a> and <area>) and, as a second opinion, in the parsed frame.
+  let domLinks = $state(0);
+  const wantLinks = $derived((!!bodyHtml && holdHtml(bodyHtml).links > 0) || domLinks > 0);
+  const links = $derived(linkRes && linkRes.html === bodyHtml ? linkRes.list : []);
+  const linksPending = $derived(wantLinks && !(linkRes && linkRes.html === bodyHtml));
+  $effect(() => {
+    const html = bodyHtml;
+    if (!html || !wantLinks) return;
+    return untrack(() => {
+      if (!once.shouldRun(html)) return;
+      let t: ReturnType<typeof setTimeout> | undefined;
+      const raf = requestAnimationFrame(() => {
+        t = setTimeout(() => {
+          const t0 = performance.now();
+          const list = extractLinks(html);
+          once.finish(html);
+          linkRes = { html, list };
+          api.perfLog(`links_${list.length}`, performance.now() - t0);
+        }, 0);
+      });
+      return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+    });
+  });
+  // links-effect:end
+
+  // Link gate: links in the body (and the list below it) stay inert until message_analysis AND safety_report for this
+  // message have finished; a failed check keeps them inert and offers a retry. The text never waits for either.
+  const gate = $derived(app.linkGate);
+  // One frame per message AND content: a frame is released only for the message it was built for.
+  const frameId = $derived(`${bodyKey}\u0001${srcdoc}`);
+  let frameDoc: Document | null = null;
+  let frameKey = "";
+  const applyGate = (d: Document, key: string) => { if (key && app.readyKey === key) releaseLinks(d); else holdLinks(d); };
+  $effect(() => {
+    void gate; void app.readyKey;
+    untrack(() => { if (frameDoc) applyGate(frameDoc, frameKey); }); // e.g. reopened with images: checks run again
+  });
+  // Remote images of the shown frame still streaming in (only when the user/sender rule allowed them).
+  let imagesLoading = $state(false);
+  let loggedBody = "";
+  $effect(() => {
+    const k = bodyKey;
+    if (k && k !== loggedBody) { loggedBody = k; api.perfLog("body_shown", performance.now() - app.openT0); }
+  });
   const flagged = $derived(sel?.flags.flagged ?? false);
 
-  /**
-   * WebKit never runs event listeners whose target document is in a frame that may not run scripts (proven in a
-   * WKWebView harness, even for listeners added by the parent), so clicks cannot be caught here. Instead web / mail
-   * links get target=_blank; with `allow-popups` a click becomes a new-window navigation that the backend hook
-   * (linknav.rs) cancels and forwards as "mail://link" (handled once per window in main.ts). "#anchor" links keep
-   * navigating inside the frame; anything else loses its href so it does nothing.
-   */
-  function markLinks(d: Document) {
-    for (const a of Array.from(d.querySelectorAll("a[href], area[href]"))) {
-      const kind = linkAction(a.getAttribute("href")).kind;
-      if (kind === "web" || kind === "mail") { a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener noreferrer"); }
-      else {
-        a.removeAttribute("target"); // an anchor must never become a new-window action (about:srcdoc#x is allowed by the hook)
-        if (kind === "ignore") a.removeAttribute("href");
-      }
-    }
-  }
+  // Link clicks: WebKit never runs event listeners whose target document is in a frame that may not run scripts, so
+  // clicks cannot be caught here. `releaseLinks` applies the rules (lib/linkgate.ts `markLinks`): web / mail links get
+  // target=_blank and, with `allow-popups`, a click becomes a new-window navigation that linknav.rs cancels and
+  // forwards as "mail://link" (handled once per window in main.ts).
 
   /**
    * Size the message frame to its content so the READER pane is the only scroller (a nested scroller inside the
@@ -67,34 +113,65 @@
       if (Math.abs(node.offsetHeight - h) > 1) node.style.height = `${h}px`;
       if (phone.on) scaleToFit(d, h);
     };
-    // Phone: a fixed-width newsletter is shrunk to the screen width instead of being cut off. Width is fixed once per load.
+    // Phone: a fixed-width newsletter is shrunk to the screen width instead of being cut off. Re-checked while images load.
     let natural = 0;
     const scaleToFit = (d: Document, h: number) => {
       const host = node.parentElement;
       if (!host) return;
-      if (!natural) { natural = d.documentElement.scrollWidth; if (natural <= host.clientWidth + 1) { natural = -1; } }
+      const w = d.documentElement.scrollWidth;
+      if (natural <= 0 || w > natural + 1) natural = w <= host.clientWidth + 1 ? -1 : w;
       if (natural <= 0) return;
       const s = host.clientWidth / natural;
       node.style.width = `${natural}px`; node.style.transformOrigin = "0 0"; node.style.transform = `scale(${s})`;
       host.style.height = `${Math.ceil(h * s)}px`;
     };
-    const onload = () => {
-      ro?.disconnect();
+    // Size and mark the frame as soon as its DOM is parsed (readyState "interactive"), not after every remote image
+    // has loaded; "load" and the ResizeObserver re-measure as images stream in.
+    const nImages = app.analysis?.images.length ?? 0;
+    const expectImages = app.imagesAllowed && nImages > 0;
+    imagesLoading = expectImages;
+    let attached = false, done = false, poll = 0;
+    let myDoc: Document | null = null;
+    const myKey = bodyKey; // the message this frame shows (the frame is re-created per message)
+    const counts = () => { const blk = b?.blockedRemoteCount ?? 0; return `img${expectImages ? nImages : 0}_blk${blk}`; };
+    const attach = () => {
+      if (attached) return;
       const d = node.contentDocument;
       if (!d?.documentElement) return;
+      // Only the srcdoc document, never the frame's initial about:blank (it would be the one marked and measured).
+      if (d.location?.href !== "about:srcdoc" && !d.body?.firstChild) return;
+      attached = true;
       measure();
-      markLinks(d);
+      myDoc = frameDoc = d;
+      frameKey = myKey;
+      domLinks = countHeld(d) + d.querySelectorAll("a[href], area[href]").length; // before the gate changes either
+      applyGate(d, myKey);
       ro = new ResizeObserver(measure);
       ro.observe(d.documentElement);
       if (d.body) ro.observe(d.body);
       ro.observe(node);
+      api.perfLog(`frame_dom_${counts()}`, performance.now() - app.openT0);
+    };
+    const onload = () => {
+      if (done) return;
+      attach();
+      if (!attached) return; // the initial about:blank: keep waiting for the srcdoc document
+      done = true;
+      measure();
+      imagesLoading = false;
+      api.perfLog(`frame_load_${counts()}`, performance.now() - app.openT0);
     };
     node.addEventListener("load", onload);
-    // WebKit can finish loading a srcdoc frame before this action runs, so "load" never reaches us: attach now too (and once more next frame).
-    const ready = () => { const d = node.contentDocument; if (d?.readyState === "complete" && d.body?.firstChild) onload(); };
-    ready();
-    const raf = requestAnimationFrame(ready);
-    return { destroy() { cancelAnimationFrame(raf); node.removeEventListener("load", onload); ro?.disconnect(); } };
+    // WebKit can finish loading a srcdoc frame before this action runs, so "load" may never reach us: poll each frame until the DOM is parsed.
+    let dead = false, raf = 0;
+    const ready = () => {
+      if (dead) return;
+      const d = node.contentDocument;
+      if (d && d.readyState !== "loading" && d.body?.firstChild) { attach(); if (d.readyState === "complete") onload(); }
+      if (!done && !dead && poll++ < 600) raf = requestAnimationFrame(ready);
+    };
+    ready(); // one chain: each call schedules the next frame itself
+    return { destroy() { dead = true; if (frameDoc === myDoc) { frameDoc = null; frameKey = ""; domLinks = 0; } cancelAnimationFrame(raf); node.removeEventListener("load", onload); ro?.disconnect(); imagesLoading = false; } };
   }
 
   async function download(a: Attachment) {
@@ -104,7 +181,8 @@
       app.notify(`Saved to ${p}`);
     } catch (e) { app.fail(e); }
   }
-  const imgs = $derived(b?.images ?? []);
+  const imgs = $derived(app.analysis?.images ?? []);
+  const analysing = $derived(app.analysisPending && !app.analysis);
   const sum = $derived(summarize(imgs));
   const warning = $derived(warningFor(sum));
   const showPrivacy = $derived(hasHtml && mode === "html" && imgs.length > 0);
@@ -125,11 +203,23 @@
 
 <section class="reader" class:ph={phone.on} aria-label="Reading pane">
   {#if app.bodyLoading && !b}
-    <div class="pad">
-      <div class="skeleton" style="height:22px;width:60%"></div>
-      <div class="skeleton" style="height:12px;width:35%;margin-top:14px"></div>
-      <div class="skeleton" style="height:12px;width:45%;margin-top:8px"></div>
-      <div class="skeleton" style="height:180px;width:100%;margin-top:28px"></div>
+    <!-- The header comes from the list row already in memory, so the message "opens" at once. -->
+    <div class="scroll" aria-busy="true">
+      {#if sel}
+        <header class="hd selectable">
+          <h1>{sel.subject || "(no subject)"}</h1>
+          <dl class="mono meta">
+            <dt>From</dt><dd>{sel.from ? addrFull(sel.from) : "Unknown sender"}</dd>
+            <dt>To</dt><dd>{sel.to.map(addrFull).join(", ") || "—"}</dd>
+            <dt>Date</dt><dd>{fullDate(sel.date)}</dd>
+          </dl>
+        </header>
+      {/if}
+      <p class="calm loading" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span>Loading message…</p>
+      <div class="skeleton" style="height:12px;width:90%"></div>
+      <div class="skeleton" style="height:12px;width:80%"></div>
+      <div class="skeleton" style="height:12px;width:85%"></div>
+      <div class="skeleton" style="height:140px;width:100%"></div>
     </div>
   {:else if !b}
     <div class="blank">
@@ -175,9 +265,16 @@
 
       <UnsubBar />
 
-      {#if b.invite}<InviteCard invite={b.invite} uid={b.summary.uid} folder={b.summary.folder} />{/if}
+      {#if analysing}
+        <p class="calm loading" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span>Checking for a calendar invite…</p>
+      {:else if app.analysis?.invite}<InviteCard invite={app.analysis.invite} account={b.summary.account} uid={b.summary.uid} folder={b.summary.folder} />{/if}
 
       <SafetyBanner />
+      {#if wantLinks && gate === "failed"}{@render retryChecks()}{/if}
+
+      {#if analysing && hasHtml && mode === "html"}
+        <p class="calm loading" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span>Analysing images and trackers…</p>
+      {/if}
 
       {#if showPrivacy}
         <div class="privacy" aria-live="polite">
@@ -189,6 +286,10 @@
           {/if}
 
           <ImageAllow />
+
+          {#if imagesLoading}
+            <p class="calm loading" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span>Loading images…</p>
+          {/if}
 
           {#if !app.imagesAllowed}
             {#if b.blockedRemoteCount > 0}
@@ -239,21 +340,25 @@
       {/if}
 
       {#if showHtml}
-        <!-- Keyed on the content: swapping `srcdoc` on a live frame sometimes left the OLD document showing (images never appeared after "Show images"); a fresh frame per content cannot. -->
-        <div class="card">{#key srcdoc}<iframe title="Message content" sandbox="allow-same-origin allow-popups" use:fit {srcdoc}></iframe>{/key}</div>
+        <!-- Keyed on the message and the content: swapping `srcdoc` on a live frame sometimes left the OLD document showing (images never appeared after "Show images"); a fresh frame per content cannot. -->
+        <div class="card">{#key frameId}<iframe title="Message content" sandbox="allow-same-origin allow-popups" use:fit {srcdoc}></iframe>{/key}</div>
       {:else}
         <pre class="plain selectable">{b.text ?? "(This message has no readable text.)"}</pre>
       {/if}
 
-      {#if links.length}
-        <details class="links">
-          <summary class="label">Links in this message ({links.length})</summary>
-          <ul>
-            {#each links as l (l.url)}
-              <li><button class="lk" onclick={() => openLink(l.url)} title={l.url}><span class="mono ell">{l.url}</span>{#if l.label && l.label !== l.url}<span class="lbl ell">{l.label}</span>{/if}</button></li>
-            {/each}
-          </ul>
-        </details>
+      {#if wantLinks && gate !== "failed"}
+        {#if gate !== "ready" || linksPending}
+          <p class="calm loading" role="status" aria-live="polite"><span class="spin" aria-hidden="true"></span>Analysing links…</p>
+        {:else if links.length}
+          <details class="links">
+            <summary class="label">Links in this message ({links.length})</summary>
+            <ul>
+              {#each links as l (l.url)}
+                <li><button class="lk" onclick={() => openLink(l.url)} title={l.url}><span class="mono ell">{l.url}</span>{#if l.label && l.label !== l.url}<span class="lbl ell">{l.label}</span>{/if}</button></li>
+              {/each}
+            </ul>
+          </details>
+        {/if}
       {/if}
 
       {#if b.attachments.length}<Attachments {b} />{/if}
@@ -261,6 +366,10 @@
   {/if}
 </section>
 <PrintSheet plain={mode === "text"} />
+
+{#snippet retryChecks()}
+  <p class="calm loading" role="status">Couldn't check links. They stay off until they are checked. <button class="lnk" onclick={() => app.retryChecks()}>{phone.on ? "Tap to retry" : "Retry"}</button></p>
+{/snippet}
 
 <style>
   .reader.ph .scroll { padding: 14px 14px 28px; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
@@ -288,6 +397,10 @@
   .note, .calm { margin: 0; font-size: 0.8333rem; color: var(--muted); display: flex; align-items: center; gap: 8px; }
   .note .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--signal); flex: none; }
   .calm { color: var(--accent); }
+  .loading { color: var(--muted); }
+  .spin { width: 12px; height: 12px; flex: none; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: rot .8s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
   .imgs summary, .explain summary { cursor: pointer; margin-bottom: 6px; }
   .im { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; display: grid; gap: 3px; }
   .row1 { display: flex; gap: 10px; align-items: center; min-width: 0; }
@@ -310,6 +423,7 @@
   iframe { display: block; width: 100%; height: 56vh; min-height: 80px; border: 0; background: #fff; }
   .plain { margin: 0; font: 400 var(--body-size)/var(--body-lh) var(--body-font); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
   .links summary { cursor: pointer; margin-bottom: 8px; }
+  .lnk { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
   ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
   li { min-width: 0; }
   .links { min-width: 0; max-width: 100%; }
