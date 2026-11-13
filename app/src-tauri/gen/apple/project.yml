@@ -61,7 +61,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: ai.mirastacklabs.miramail.spike.widgets
         SKIP_INSTALL: true
         SWIFT_VERSION: "5.0"
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: "1"   # iPhone only for 1.0
         CODE_SIGN_ENTITLEMENTS: MiraMailWidgets/MiraMailWidgets.entitlements
   miramail_iOS:
     type: application
@@ -100,6 +100,8 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 1.0.0
         CFBundleVersion: "1.0.0"
+        # TLS only (IMAP/SMTP/HTTPS through rustls): exempt encryption, no export-compliance question per upload.
+        ITSAppUsesNonExemptEncryption: false
         # Widget taps: miramail://mail and miramail://calendar (handled in widget_snapshot.rs, RunEvent::Opened).
         CFBundleURLTypes:
           - CFBundleURLName: ai.mirastacklabs.miramail.link
@@ -121,6 +123,7 @@ targets:
     settings:
       base:
         ENABLE_BITCODE: false
+        TARGETED_DEVICE_FAMILY: "1"   # iPhone only for 1.0
         ARCHS: [arm64]
         VALID_ARCHS: arm64 
         LIBRARY_SEARCH_PATHS[arch=x86_64]: $(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)

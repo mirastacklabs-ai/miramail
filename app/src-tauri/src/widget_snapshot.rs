@@ -335,6 +335,7 @@ mod ios {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::OnceLock;
+    use crate::safety_cmds::perf;
     use tauri::{AppHandle, Manager};
 
     static PENDING: AtomicBool = AtomicBool::new(false);
@@ -348,7 +349,21 @@ mod ios {
         if let Some(d) = DIR.get() {
             return Some(d.clone());
         }
-        let d = tauri_plugin_mailcheck::widget_container(app)?;
+        let d = match tauri_plugin_mailcheck::widget_container(app) {
+            Ok(Some(d)) => {
+                crate::safety_cmds::perf::log("perf: widget container=some");
+                d
+            }
+            Ok(None) => {
+                crate::safety_cmds::perf::log("perf: widget container=none");
+                return None;
+            }
+            Err(e) => {
+                // Error text from the plugin bridge holds no user data (method lookup / decode failures).
+                crate::safety_cmds::perf::log(&format!("perf: widget container=error {}", e.chars().take(120).collect::<String>()));
+                return None;
+            }
+        };
         let _ = DIR.set(d.clone());
         Some(d)
     }
@@ -397,9 +412,15 @@ mod ios {
     /// Build, write and (throttled) reload. Blocking; call from a worker thread.
     pub fn refresh_blocking(app: &AppHandle, force: bool) {
         // Not managed yet (very early start, background launch): nothing to write.
-        let (Some(ws), Some(badge), Some(st)) = (app.try_state::<WidgetState>(), app.try_state::<crate::badge::BadgeState>(), app.try_state::<crate::state::AppState>()) else { return };
+        let (Some(ws), Some(badge), Some(st)) = (app.try_state::<WidgetState>(), app.try_state::<crate::badge::BadgeState>(), app.try_state::<crate::state::AppState>()) else {
+            perf::log("perf: widget refresh skipped: state not managed");
+            return;
+        };
         let _one_at_a_time = REFRESH.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(dir) = group_dir(app) else { return }; // App Group not provisioned: widgets simply show "Open MiraMail to sync"
+        let Some(dir) = group_dir(app) else {
+            perf::log("perf: widget refresh skipped: no group dir");
+            return;
+        }; // App Group not provisioned: widgets simply show "Open MiraMail to sync"
         let details = ws.get().show_details;
         let now = chrono::Utc::now().timestamp();
         let input = gather(app, &st.storage, &badge, details, now);
@@ -407,14 +428,19 @@ mod ios {
             // No account (last one removed): nothing of the user's may stay in the shared container.
             let _ = std::fs::remove_file(dir.join(FILE));
             tauri_plugin_mailcheck::reload_widgets(app);
+            perf::log("perf: widget refresh: no accounts, snapshot removed");
             return;
         }
         let snap = build(&input);
-        if write_atomic(&dir, &snap).is_err() {
+        if let Err(e) = write_atomic(&dir, &snap) {
+            perf::log(&format!("perf: widget write failed kind={:?}", e.kind()));
             // An older file may hold details the user just switched off: better none than stale.
             let _ = std::fs::remove_file(dir.join(FILE));
             return;
         }
+        // Read back through the filesystem: devicectl's container policy hides files outside Library/, so this is the proof.
+        let on_disk = std::fs::metadata(dir.join(FILE)).map(|m| m.len()).ok();
+        perf::log(&format!("perf: widget wrote snapshot accounts={} on_disk_bytes={on_disk:?} details={details}", input.unread.len()));
         let due = GATE.lock().unwrap_or_else(|e| e.into_inner()).due(now, signature(&snap));
         if due || force {
             tauri_plugin_mailcheck::reload_widgets(app);
@@ -434,6 +460,7 @@ mod ios {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             PENDING.store(false, Ordering::SeqCst);
             let force = FORCE.swap(false, Ordering::SeqCst);
+            perf::log(&format!("perf: widget refresh start force={force}"));
             let _ = tauri::async_runtime::spawn_blocking(move || refresh_blocking(&app, force)).await;
         });
     }

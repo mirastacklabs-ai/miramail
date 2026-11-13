@@ -390,18 +390,18 @@ struct WidgetDirReply {
 
 /// The App Group container (`group.<app bundle id>`) the widget extension reads, or `None` when the group is not
 /// provisioned / off iOS. Blocking; call from a worker thread. Nothing else is shared with the extension.
-pub fn widget_container<R: Runtime>(app: &tauri::AppHandle<R>) -> Option<std::path::PathBuf> {
+pub fn widget_container<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Option<std::path::PathBuf>, String> {
     #[cfg(mobile)]
     {
         use tauri::Manager;
-        let h = app.try_state::<mobile::Handle<R>>()?;
-        let r = h.0.run_mobile_plugin::<WidgetDirReply>("widgetContainer", mobile::Empty {}).ok()?;
-        r.path.filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
+        let h = app.try_state::<mobile::Handle<R>>().ok_or("plugin handle not managed")?;
+        let r = h.0.run_mobile_plugin::<WidgetDirReply>("widgetContainer", mobile::Empty {}).map_err(|e| e.to_string())?;
+        Ok(r.path.filter(|p| !p.is_empty()).map(std::path::PathBuf::from))
     }
     #[cfg(not(mobile))]
     {
         let _ = app;
-        None
+        Ok(None)
     }
 }
 
