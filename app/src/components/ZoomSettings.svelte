@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keychainName } from "../lib/device";
   import { api } from "../lib/api";
   import { app } from "../lib/state.svelte";
   import { cal } from "../lib/cal.svelte";
@@ -38,7 +39,7 @@
 </script>
 
 <Modal title="Zoom settings" onclose={close} width={600}>
-  <p class="priv"><strong>Zoom is contacted only after you press Connect.</strong> Until then MiraMail makes no request to zoom.us. Tokens are kept in the macOS Keychain; MiraMail has no server of its own.</p>
+  <p class="priv"><strong>Zoom is contacted only after you press Connect.</strong> Until then MiraMail makes no request to zoom.us. Tokens are kept in the {keychainName()}; MiraMail has no server of its own.</p>
 
   <div class="status" role="status">
     <span class="zd" class:on={z?.connected}></span>

@@ -5,6 +5,7 @@ import { cal } from "./cal.svelte";
 import { replyFresh, replyTo } from "./compose";
 import { onMailto, onMenuAction, onNotice, onOpenInbox, onOpenMessage, platformApi, type MailtoDraft } from "./platformapi";
 import { phone } from "./phone.svelte";
+import { onOpenTab, widgetApi } from "./widgetapi";
 import { openList } from "./phonemodel";
 import type { FolderRole } from "./types";
 
@@ -89,6 +90,15 @@ class Platform {
     } catch { /* nothing to open */ }
   }
 
+  /** iPhone: a home-screen widget tap (miramail://mail or miramail://calendar) asked for a tab. Waits for accounts like drainTap. */
+  async drainOpenTab(tries = 0) {
+    if (!app.accounts.length && tries < 10) { window.setTimeout(() => { void this.drainOpenTab(tries + 1); }, 800); return; }
+    try {
+      const t = await widgetApi.takePendingTab();
+      if (t && phone.on) phone.tab(t);
+    } catch { if (tries < 10) window.setTimeout(() => { void this.drainOpenTab(tries + 1); }, 800); } // refused while the app is still in the background: ask again
+  }
+
   openMailto(d: MailtoDraft) {
     const acc = app.account;
     if (!acc) { app.notify("Add an account first, then open the mailto link again."); return; }
@@ -115,7 +125,10 @@ class Platform {
     const tap = () => { void this.drainTap(); };
     const t2 = phone.on ? window.setTimeout(tap, 1500) : 0;
     if (phone.on) window.addEventListener("miramail-tap", tap);
-    return () => { clearTimeout(t); clearTimeout(t2); window.removeEventListener("miramail-tap", tap); offs.forEach((f) => f()); };
+    // iPhone: a widget tap opened the app (cold start: ask once the page is up; running: the native side emits app://open-tab).
+    const t3 = phone.on ? window.setTimeout(() => { void this.drainOpenTab(); }, 1200) : 0;
+    const offTab = phone.on ? await onOpenTab(() => { void this.drainOpenTab(); }) : () => {};
+    return () => { clearTimeout(t); clearTimeout(t2); clearTimeout(t3); offTab(); window.removeEventListener("miramail-tap", tap); offs.forEach((f) => f()); };
   }
 }
 

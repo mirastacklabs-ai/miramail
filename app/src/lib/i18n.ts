@@ -8,6 +8,7 @@
 //  3. `setLocale("<code>")` switches at runtime (call it from a future Preferences > General language picker).
 // Converted so far: Preferences tab names, the Vacation reply tab, the theme names. Everything else is still
 // English literals (see docs/ESSENTIALS_SPEC.md, "Localisation").
+import { thisDevice } from "./device.ts";
 
 export const en = {
   "prefs.title": "Preferences",
@@ -31,7 +32,7 @@ export const en = {
   "theme.contrast": "High contrast",
 
   "vac.title": "Vacation reply",
-  "vac.intro": "MiraMail asks your mail server to answer incoming mail for you, so it keeps working while this Mac is off. It uses your mail server's ManageSieve service; nothing goes anywhere else.",
+  "vac.intro": `MiraMail asks your mail server to answer incoming mail for you, so it keeps working while ${thisDevice()} is off. It uses your mail server's ManageSieve service; nothing goes anywhere else.`,
   "vac.account": "Account",
   "vac.checking": "Checking what your server supports...",
   "vac.unsupported": "Not available for this account",

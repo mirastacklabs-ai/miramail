@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keychainName } from "../lib/device";
   import Select from "./Select.svelte";
   import { api, errMsg } from "../lib/api";
   import { app } from "../lib/state.svelte";
@@ -109,7 +110,7 @@
         </div>
       </fieldset>
     {/if}
-    <p class="note">Your password stays in the macOS Keychain. MiraMail talks to your mail servers, and may look up your email domain&rsquo;s standard mail-settings file over HTTPS to find them.</p>
+    <p class="note">Your password stays in the {keychainName()}. MiraMail talks to your mail servers, and may look up your email domain&rsquo;s standard mail-settings file over HTTPS to find them.</p>
   </form>
   <p class="attr">© MIRASTACK LABS PRIVATE LIMITED · Visual identity by MIRASTACK LABS</p>
 </main>

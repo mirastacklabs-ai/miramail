@@ -36,3 +36,11 @@ test("a form with an email input has novalidate (no native validation bubble)", 
   const bad = walk(root).filter((f) => { const t = read(f); return /<input\b[^>]*\btype\s*=\s*["']?email/i.test(t) && /<form\b/i.test(t) && !/<form\b[^>]*\bnovalidate\b/i.test(t); });
   assert.deepEqual(bad, []);
 });
+
+test("no native alert / confirm / prompt in components or lib", () => {
+  const files = (dir) => { const out = []; const w = (d) => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) w(p); else if (/\.(svelte|ts)$/.test(p) && !/\.test\.ts$/.test(p)) out.push(p); } }; w(dir); return out; };
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/ .*$/gm, "");
+  const re = /(?:window\.)?(?<![\w.$])(?:alert|confirm|prompt)\(/;
+  const bad = files(root).filter((f) => re.test(strip(read(f))));
+  assert.deepEqual(bad, []);
+});

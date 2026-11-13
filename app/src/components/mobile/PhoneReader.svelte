@@ -5,6 +5,8 @@
   import { snoozeUi } from "../../lib/t2.svelte";
   import { org } from "../../lib/org.svelte";
   import { readerView } from "../../lib/readerview.svelte";
+  import { orgApi } from "../../lib/orgapi";
+  import { buildPrintHtml } from "../../lib/printdoc";
   import Reader from "../Reader.svelte";
   let more = $state(false);
   const sel = $derived(app.selected);
@@ -13,6 +15,14 @@
   const remove = (r: "archive" | "trash") => phone.afterRemoval(() => app.moveTo(r));
   const sender = $derived(app.body?.summary.from?.address);
   const hasHtml = $derived(!!app.body?.html);
+  async function printIt() {
+    const b = app.body; if (!b) return;
+    try { await orgApi.printMessage(buildPrintHtml(b, readerView.mode !== "html"), b.summary.subject || ""); } catch (e) { app.fail(e); }
+  }
+  async function shareEml() {
+    const m = app.body?.summary; if (!m) return;
+    try { await orgApi.shareEml(m.account, m.folder, m.uid); } catch (e) { app.fail(e); }
+  }
   const run = (f: () => void | Promise<void>) => { more = false; void f(); };
 </script>
 <section class="screen">
@@ -45,6 +55,8 @@
         {#if org.senderAllowed(sender)}<button role="menuitem" onclick={() => run(() => org.disallowSender(sender))}>Stop auto-loading images from {sender}</button>
         {:else}<button role="menuitem" onclick={() => run(() => { org.allowSender(sender); void app.open(app.body!.summary.uid, true, true); })}>Always load images from {sender}</button>{/if}
       {/if}
+      <button role="menuitem" onclick={() => run(() => void printIt())}>Print…</button>
+      <button role="menuitem" onclick={() => run(() => void shareEml())}>Share as .eml…</button>
       <button role="menuitem" onclick={() => run(() => void org.viewSource("headers"))}>View full headers</button>
       <button role="menuitem" onclick={() => run(() => void org.viewSource("raw"))}>View raw source</button>
       <button role="menuitem" class="danger" onclick={() => run(() => phone.afterRemoval(() => app.deleteForever()))}>Delete forever</button>

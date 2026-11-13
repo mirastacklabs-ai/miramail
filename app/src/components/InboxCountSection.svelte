@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { deviceWord, thisDevice } from "../lib/device";
   import { onMount } from "svelte";
   import { app } from "../lib/state.svelte";
   import Select from "./Select.svelte";
@@ -17,7 +18,7 @@
 
 <section aria-labelledby="ic-h">
   <h3 id="ic-h">Inbox count</h3>
-  <p class="note">The number of unread messages in your Inbox, shown outside the app. It is counted on this Mac from mail MiraMail already downloaded; nothing extra is fetched and nothing leaves the Mac.</p>
+  <p class="note">The number of unread messages in your Inbox, shown outside the app. It is counted on {thisDevice()} from mail MiraMail already downloaded; nothing extra is fetched and nothing leaves the {deviceWord()}.</p>
 
   <label class="chk"><input type="checkbox" checked={p.dockBadge} disabled={!platformPrefs.loaded} onchange={(e) => platformPrefs.patch({ dockBadge: e.currentTarget.checked })} /> Show the unread count on the Dock icon</label>
 

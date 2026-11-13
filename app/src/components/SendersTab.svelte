@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../lib/device";
   // Preferences > Senders: VIP senders, blocked senders, muted conversations. All local to this Mac.
   import { onMount } from "svelte";
   import { local } from "../lib/localorg.svelte";
@@ -19,7 +20,7 @@
 
 <section aria-labelledby="sd-h">
   <h3 id="sd-h">Senders and conversations</h3>
-  <p class="note">These lists live only on this Mac, in MiraMail's own database. Nothing is sent to your mail server or anywhere else.</p>
+  <p class="note">These lists live only on {thisDevice()}, in MiraMail's own database. Nothing is sent to your mail server or anywhere else.</p>
 
   <h4>VIP senders</h4>
   <p class="note">Mail from a VIP always notifies, even for accounts set to “VIP only” (Preferences > Notifications). Add one from a message's right-click menu, or type an address here.</p>

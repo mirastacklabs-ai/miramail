@@ -32,6 +32,7 @@ where
 
 pub fn changed(app: &AppHandle) {
     let _ = app.emit("cal://changed", ());
+    crate::widget_snapshot::request(app, false);
 }
 
 /// One background CalDAV sync pass. Emits `cal://changed` when a sync was attempted (state/errors may have changed).

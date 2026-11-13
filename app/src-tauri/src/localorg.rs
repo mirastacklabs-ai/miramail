@@ -185,6 +185,17 @@ impl LocalOrg {
         let rows = storage.unseen_link_rows(account, INBOX, MUTED_SCAN).unwrap_or_default();
         rows.iter().filter(|(_, mid, irt, refs)| message_muted(&muted, mid, irt, refs)).count() as u32
     }
+
+    /// UIDs of the unread INBOX messages of `account` that belong to a muted thread (the iPhone widgets leave them out).
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))] // used by the iPhone widget snapshot
+    pub fn muted_unseen_uids(&self, storage: &Storage, account: &str) -> HashSet<u32> {
+        let Ok(muted) = self.muted_set(account) else { return HashSet::new() };
+        if muted.is_empty() {
+            return HashSet::new();
+        }
+        let rows = storage.unseen_link_rows(account, INBOX, MUTED_SCAN).unwrap_or_default();
+        rows.iter().filter(|(_, mid, irt, refs)| message_muted(&muted, mid, irt, refs)).map(|(uid, ..)| *uid).collect()
+    }
 }
 
 // ---------------------------------------------------------------------------------------------- threads

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../../lib/device";
   // Per-conversation consent: where messages go, what the assistant may see (later phases), and how mail is redacted.
   import { onMount, untrack } from "svelte";
   import { api } from "../../lib/api";
@@ -69,10 +70,10 @@
     <div class="to" class:local>
       {#if editing}
         <h3>{local ? "Change what this chat may see with your local model?" : editHeading(provName, host, model)}</h3>
-        <p>You are changing what this existing chat may see. Nothing is sent to the AI endpoint when you open this dialog, edit it or press Cancel, and nothing changes until you press Save permissions. After saving, {tools ? "the mail the assistant reads" : "only what you type"} {local ? "stays on this Mac" : `goes to ${provName} at `}{#if !local}<span class="mono">{host}</span> under its own terms{/if}. Earlier messages and suggestions are not changed; narrowing applies at once, including to suggestions still waiting for your approval. {EDIT_KEEPS_READ_NOTE}</p>
+        <p>You are changing what this existing chat may see. Nothing is sent to the AI endpoint when you open this dialog, edit it or press Cancel, and nothing changes until you press Save permissions. After saving, {tools ? "the mail the assistant reads" : "only what you type"} {local ? `stays on ${thisDevice()}` : `goes to ${provName} at `}{#if !local}<span class="mono">{host}</span> under its own terms{/if}. Earlier messages and suggestions are not changed; narrowing applies at once, including to suggestions still waiting for your approval. {EDIT_KEEPS_READ_NOTE}</p>
       {:else if local}
         <h3>Start a local conversation?</h3>
-        <p>Local model at <span class="mono">{host}</span>. Nothing leaves this Mac.</p>
+        <p>Local model at <span class="mono">{host}</span>. Nothing leaves {thisDevice()}.</p>
       {:else if profile}
         <h3>{consentHeading(profile.name, host, profile.model)}</h3>
         <p>{tools ? "What you type and the mail the assistant reads are" : "What you type here is"} sent to {profile.name} at <span class="mono">{host}</span> and processed by that provider under its own terms.</p>
@@ -126,7 +127,7 @@
 
     <fieldset>
       <legend class="label">Redaction</legend>
-      <p class="note">Applies to any mail text before it leaves this Mac.</p>
+      <p class="note">Applies to any mail text before it leaves {thisDevice()}.</p>
       {#each REDACT as r (r.key)}
         <label class="chk col"><span><input type="checkbox" bind:checked={redaction[r.key]} /> {r.label}</span><span class="help">{r.help}</span></label>
       {/each}

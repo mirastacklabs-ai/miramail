@@ -27,6 +27,42 @@ targetTemplates:
     settings:
       groups: [app]
 targets:
+  # Home-screen widgets (WidgetKit). Read-only view of <App Group>/widget.json that the app writes; no network, no Keychain.
+  # Bundle id = <app id>.widgets; ios-device.sh rewrites the spike ids to the BUNDLE_ID it was given and checks both.
+  # Keep this target above miramail_iOS: ios-device.sh cuts the file at that target's build-phase script block.
+  MiraMailWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: MiraMailWidgets
+        excludes: ["*.entitlements"]
+    info:
+      path: MiraMailWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: MiraMail
+        CFBundleShortVersionString: 1.0.0
+        CFBundleVersion: "1.0.0"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    # Tells Xcode's automatic provisioning that the App Groups capability is on for this App ID (TargetAttributes
+    # SystemCapabilities); the entitlements file alone made it build a profile without the group.
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
+    entitlements:
+      path: MiraMailWidgets/MiraMailWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.ai.mirastacklabs.miramail.spike]
+    settings:
+      base:
+        PRODUCT_NAME: MiraMailWidgets
+        PRODUCT_BUNDLE_IDENTIFIER: ai.mirastacklabs.miramail.spike.widgets
+        SKIP_INSTALL: true
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_ENTITLEMENTS: MiraMailWidgets/MiraMailWidgets.entitlements
   miramail_iOS:
     type: application
     platform: iOS
@@ -64,8 +100,20 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 1.0.0
         CFBundleVersion: "1.0.0"
+        # Widget taps: miramail://mail and miramail://calendar (handled in widget_snapshot.rs, RunEvent::Opened).
+        CFBundleURLTypes:
+          - CFBundleURLName: ai.mirastacklabs.miramail.link
+            CFBundleURLSchemes: [miramail]
+    # Tells Xcode's automatic provisioning that the App Groups capability is on for this App ID (TargetAttributes
+    # SystemCapabilities); the entitlements file alone made it build a profile without the group.
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
     entitlements:
       path: miramail_iOS/miramail_iOS.entitlements
+      properties:
+        com.apple.security.application-groups: [group.ai.mirastacklabs.miramail.spike]
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full
@@ -83,6 +131,8 @@ targets:
     dependencies:
       - framework: libapp.a
         embed: false
+      - target: MiraMailWidgets
+        embed: true
       - package: tauri-plugin-mailcheck
         product: tauri-plugin-mailcheck
       - sdk: CoreGraphics.framework

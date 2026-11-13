@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { org as orgStore } from "../lib/org.svelte";
+  import { thisDevice } from "../lib/device";
   // The address book: local contacts and groups (Preferences-free, reachable from the sidebar). Nothing here talks to
   // a server. vCard files are read through the file picker and parsed by the backend; export writes a NEW file in
   // Downloads (never overwrites).
@@ -46,7 +48,7 @@
     saving = false;
   }
   async function remove(c: Contact) {
-    const ok = await app.ask({ title: `Delete ${c.name || c.emails[0]}?`, body: "The contact is removed from this Mac's address book. Mail from them is not touched.", ok: "Delete", danger: true });
+    const ok = await app.ask({ title: `Delete ${c.name || c.emails[0]}?`, body: `The contact is removed from ${thisDevice()}'s address book. Mail from them is not touched.`, ok: "Delete", danger: true });
     if (!ok) return;
     try { await contactsApi.remove(c.id); contactsUi.editing = null; await contactsUi.reload(); } catch (e) { app.fail(e); }
   }
@@ -58,7 +60,7 @@
   async function renameGroup() {
     const g = contactsUi.groups.find((x) => x.name === contactsUi.group);
     if (!g) return;
-    const n = window.prompt("New group name", g.name)?.trim();
+    const n = (await orgStore.askText({ title: "Rename group", label: "New group name", value: g.name, ok: "Rename" }))?.trim();
     if (!n || n === g.name) return;
     try { await contactsApi.groupRename(g.id, n); contactsUi.group = n; await contactsUi.reload(); } catch (e) { app.notify(errMsg(e), "error"); }
   }
@@ -132,7 +134,7 @@
     <section class="right" aria-label="Contact details">
       {#if suggestions}
         <h3>People you correspond with</h3>
-        <p class="help">From mail already on this Mac. Tick the ones to add to your address book.</p>
+        <p class="help">From mail already on {thisDevice()}. Tick the ones to add to your address book.</p>
         {#if suggestions.length === 0}<p class="help">Everyone from your recent mail is already saved.</p>{/if}
         <ul class="sug">
           {#each suggestions as s (s.address)}
@@ -141,7 +143,7 @@
         </ul>
         <div class="rw"><button class="btn sm" disabled={!suggestions.some((s) => picked[s.address])} onclick={addPicked}>Add selected</button><button class="btn ghost sm" onclick={() => (suggestions = null)}>Cancel</button></div>
       {:else if contactsUi.editing === null}
-        <p class="help">Select a contact, or add a new one. Contacts live only on this Mac. Groups work in Compose: type the group name in To or Cc and pick it to fill in all its members.</p>
+        <p class="help">Select a contact, or add a new one. Contacts live only on {thisDevice()}. Groups work in Compose: type the group name in To or Cc and pick it to fill in all its members.</p>
       {:else}
         <form class="ed" onsubmit={(e) => { e.preventDefault(); void save(); }}>
           <div class="field"><label class="label" for="ct-n">Name</label><input id="ct-n" bind:value={name} maxlength="200" /></div>

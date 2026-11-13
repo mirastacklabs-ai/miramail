@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../../lib/device";
   // Create or edit a local rule by hand. No model is involved. A new rule is saved OFF; you review the preview of
   // the mail it would match and turn it on yourself. There are no regular expressions and only five actions.
   import { onMount } from "svelte";
@@ -106,7 +107,7 @@
     <label class="chk"><input type="checkbox" checked={has("trash")} onchange={(e) => toggleAction("trash", e.currentTarget.checked)} /> Move to Trash (not deleted for good)</label>
     <label class="chk"><input type="checkbox" checked={has("markRead")} onchange={(e) => toggleAction("markRead", e.currentTarget.checked)} /> Mark as read</label>
     <label class="chk"><input type="checkbox" checked={has("flag")} onchange={(e) => toggleAction("flag", e.currentTarget.checked)} /> Flag</label>
-    <label class="chk"><input type="checkbox" checked={has("colour")} onchange={(e) => toggleAction("colour", e.currentTarget.checked)} /> Give a colour label (kept on this Mac)</label>
+    <label class="chk"><input type="checkbox" checked={has("colour")} onchange={(e) => toggleAction("colour", e.currentTarget.checked)} /> Give a colour label (kept on {thisDevice()})</label>
     {#if has("colour")}
       <div class="ind"><Select value={String(colourValue)} options={COLOUR_NAMES.slice(1).map((n, i) => ({ value: String(i + 1), label: n }))} ariaLabel="Colour label" onchange={(v) => setColour(Number(v))} /></div>
     {/if}

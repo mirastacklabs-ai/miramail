@@ -3,12 +3,20 @@
   import { cal } from "../lib/cal.svelte";
   import { clipToDay, dayKey, fmtTime, hourLabel, layoutColumns, occSpan, sameDay, snap, sod, touchesDay, type Span } from "../lib/caldate";
   import type { Occurrence } from "../lib/types";
+  import { phone } from "../lib/phone.svelte";
+  import { app } from "../lib/state.svelte";
+  import { api } from "../lib/api";
+  import { fmtSpan, localTz, parseDayKey, spansMultipleDays, toRfc } from "../lib/caldate";
+  import { GRID_LONG_MS, columnAt, createRange, lpArm, lpBlocksScroll, lpMove, lpStart, minuteAt, moveStartMin, type LpState } from "../lib/touchgrid";
 
   let { days }: { days: Date[] } = $props();
   const HH = 48;
   let scroller = $state<HTMLDivElement>();
   let now = $state(new Date());
   let drag = $state<{ day: string; a: number; b: number } | null>(null);
+  // Phone: a long-press on an event lifts it; the ghost shows where it will land.
+  let lastScroll = 0; // ms timestamp of the latest scroll event: no arming during momentum
+  let mv = $state<{ key: string; day: string; start: number; dur: number } | null>(null);
 
   const items = $derived(cal.occ.map((o) => ({ o, sp: occSpan(o) })));
   const allDay = (d: Date) => items.filter((x) => (x.sp.allDay || x.sp.end.getTime() - x.sp.start.getTime() >= 86400000) && touchesDay(x.sp, d));
@@ -36,15 +44,15 @@
   const minAt = (e: PointerEvent, el: HTMLElement) => Math.min(24 * 60, Math.max(0, snap(((e.clientY - el.getBoundingClientRect().top) / HH) * 60)));
   const at = (d: Date, min: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, min);
   function down(e: PointerEvent, d: Date) {
-    if (e.button !== 0 || (e.target as HTMLElement).closest(".ev")) return;
+    if (e.pointerType === "touch" || e.button !== 0 || (e.target as HTMLElement).closest(".ev")) return;
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
     const m = minAt(e, el);
     drag = { day: dayKey(d), a: m, b: m };
   }
-  function move(e: PointerEvent) { if (drag) drag.b = minAt(e, e.currentTarget as HTMLElement); }
-  function up(d: Date) {
-    if (!drag) return;
+  function move(e: PointerEvent) { if (e.pointerType === "touch") return; if (drag) drag.b = minAt(e, e.currentTarget as HTMLElement); }
+  function up(e: PointerEvent, d: Date) {
+    if (e.pointerType === "touch" || !drag) return;
     const [s, en] = [Math.min(drag.a, drag.b), Math.max(drag.a, drag.b)];
     drag = null;
     if (en - s >= 15) cal.newEvent({ start: at(d, s), end: at(d, en), allDay: false });
@@ -54,6 +62,89 @@
     const m = Math.floor(((e.clientY - (e.currentTarget as HTMLElement).getBoundingClientRect().top) / HH)) * 60;
     cal.newEvent({ start: at(d, m), end: at(d, m + 60), allDay: false });
   }
+
+  // ---- phone: long-press (400 ms) to create / move; a normal vertical swipe still scrolls ----
+  const evKey = (o: Occurrence) => `${o.uid}|${o.recurrenceStart}`;
+  function gridTouch(node: HTMLElement) {
+    const onScroll = () => { lastScroll = performance.now(); };
+    scroller?.addEventListener("scroll", onScroll, { passive: true });
+    let st: LpState = "idle", timer: ReturnType<typeof setTimeout> | undefined, x0 = 0, y0 = 0, cx = 0, cy = 0;
+    let target: { o: Occurrence; sp: Span; grab: number; dur: number } | null = null;
+    let startCol = 0;
+    const cols = () => [...node.querySelectorAll<HTMLElement>(".col")];
+    const clear = () => { clearTimeout(timer); timer = undefined; };
+    const reset = () => { clear(); st = "idle"; target = null; drag = null; mv = null; };
+    const colIdx = () => columnAt(cx, cols().map((c) => c.getBoundingClientRect()));
+    const pointerMin = (i: number) => minuteAt(cy, cols()[i].getBoundingClientRect().top, HH);
+    function update() {
+      const cs = cols(); const i = colIdx(); if (i < 0) return;
+      const day = (cs[i] as HTMLElement).dataset.day!;
+      if (target) mv = { key: evKey(target.o), day, start: moveStartMin(pointerMin(i), target.grab, target.dur), dur: target.dur };
+      else if (drag) drag = { day: drag.day, a: drag.a, b: minuteAt(cy, cs[startCol].getBoundingClientRect().top, HH) };
+    }
+    function arm() {
+      timer = undefined; if (performance.now() - lastScroll < 150) { st = "cancelled"; return; } st = lpArm(st); if (st !== "armed") return;
+      const cs = cols(); startCol = colIdx(); if (startCol < 0) return reset();
+      const day = (cs[startCol] as HTMLElement).dataset.day!;
+      const hit = document.elementFromPoint(x0, y0)?.closest<HTMLElement>(".ev");
+      if (hit) {
+        const x = items.find((it) => evKey(it.o) === hit.dataset.ek);
+        if (!x || spansMultipleDays(x.sp) || x.o.isRecurring || x.o.hasZoom || cal.calendars.find((c) => c.id === x.o.calendarId)?.readOnly) {
+          st = "cancelled";
+          if (x) app.notify(cal.calendars.find((c) => c.id === x.o.calendarId)?.readOnly ? "This calendar is read-only." : "Use Edit to move this event.", "info");
+          return;
+        }
+        const dur = Math.round((x.sp.end.getTime() - x.sp.start.getTime()) / 60000);
+        const startMin = x.sp.start.getHours() * 60 + x.sp.start.getMinutes();
+        target = { o: x.o, sp: x.sp, dur, grab: Math.max(0, Math.min(dur, pointerMin(startCol) - startMin)) };
+      } else { const m = Math.min(1425, pointerMin(startCol)); drag = { day, a: m, b: m }; }
+      update();
+    }
+    const onStart = (e: TouchEvent) => {
+      reset(); st = lpStart(e.touches.length); if (st !== "pending") return;
+      x0 = cx = e.touches[0].clientX; y0 = cy = e.touches[0].clientY;
+      timer = setTimeout(arm, GRID_LONG_MS);
+    };
+    const onMove = (e: TouchEvent) => {
+      if (st === "idle") return;
+      cx = e.touches[0].clientX; cy = e.touches[0].clientY;
+      const was = st; st = lpMove(st, cx - x0, cy - y0);
+      if (st === "cancelled" && was === "pending") clear();
+      if (lpBlocksScroll(st)) { if (e.cancelable) e.preventDefault(); update(); }
+    };
+    const onEnd = (e: TouchEvent) => {
+      const armed = lpBlocksScroll(st);
+      if (armed && e.type === "touchend") {
+        if (e.cancelable) e.preventDefault(); // no synthetic click on the event underneath
+        const d = drag, m = mv, t = target;
+        if (t && m) void commitMove(t.o, m.day, m.start, t.dur);
+        else if (d) { const r = createRange(d.a, d.b); const day = parseDayKey(d.day); cal.newEvent({ start: at(day, r.start), end: at(day, r.end), allDay: false }); }
+      }
+      reset();
+    };
+    node.addEventListener("touchstart", onStart, { passive: true });
+    node.addEventListener("touchmove", onMove, { passive: false });
+    node.addEventListener("touchend", onEnd, { passive: false });
+    node.addEventListener("touchcancel", onEnd, { passive: true });
+    return { destroy() { clear(); scroller?.removeEventListener("scroll", onScroll); node.removeEventListener("touchstart", onStart); node.removeEventListener("touchmove", onMove); node.removeEventListener("touchend", onEnd); node.removeEventListener("touchcancel", onEnd); } };
+  }
+  /** Drop of a moved event: always asks first, never moves shared or repeating events, saves without sending invites. */
+  async function commitMove(o: Occurrence, day: string, startMin: number, durMin: number) {
+    const ns = at(parseDayKey(day), startMin), ne = new Date(ns.getTime() + durMin * 60000);
+    const old = occSpan(o);
+    if (ns.getTime() === old.start.getTime()) return;
+    const ok = await app.ask({ title: "Move event?", body: `Move “${o.summary || "Untitled"}” to ${fmtSpan({ start: ns, end: ne, allDay: false })}?`, ok: "Move" });
+    if (!ok) return;
+    try {
+      const ev = await api.calGetEvent(o.uid, o.calendarId);
+      const len = new Date(ev.end).getTime() - new Date(ev.start).getTime();
+      if (ev.attendees.length || ev.rrule || ev.allDay || ev.zoom || !(len > 0)) { app.notify("Use Edit to move this event.", "info"); return; }
+      const tz = ev.tzid ?? localTz();
+      await cal.save({ ...ev, start: toRfc(ns.getTime(), tz), end: toRfc(ns.getTime() + len, tz) }, false);
+    } catch (e) { app.fail(e); }
+  }
+  // Svelte actions can't be conditional: attach the touch glue on the phone only.
+  const touchAction = (node: HTMLElement) => (phone.on ? gridTouch(node) : undefined);
   const label = (x: { o: Occurrence; sp: Span }) =>
     `${x.o.summary || "Untitled"}, ${x.sp.allDay ? "all day" : fmtTime(x.sp.start) + " to " + fmtTime(x.sp.end)}${x.o.location ? ", " + x.o.location : ""}${x.o.hasZoom ? ", Zoom" : ""}`;
 </script>
@@ -85,14 +176,14 @@
       <div class="gut hours" aria-hidden="true">
         {#each Array.from({ length: 24 }, (_, h) => h) as h (h)}<div class="hl mono" style="top:{h * HH}px">{h === 0 ? "" : hourLabel(h)}</div>{/each}
       </div>
-      <div class="cols" role="row">
+      <div class="cols" role="row" use:touchAction>
         {#each days as d (dayKey(d))}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="col" role="gridcell" tabindex="-1" aria-label="{d.toLocaleDateString([], { dateStyle: 'full' })}. Drag to create an event." class:today={sameDay(d, now)}
-            onpointerdown={(e) => down(e, d)} onpointermove={move} onpointerup={() => up(d)} onpointercancel={() => (drag = null)} ondblclick={(e) => dbl(e, d)}>
+          <div class="col" role="gridcell" tabindex="-1" aria-label="{d.toLocaleDateString([], { dateStyle: 'full' })}. {phone.on ? 'Press and hold to create an event.' : 'Drag to create an event.'}" class:today={sameDay(d, now)} data-day={dayKey(d)}
+            onpointerdown={(e) => down(e, d)} onpointermove={move} onpointerup={(e) => up(e, d)} onpointercancel={(e) => { if (e.pointerType !== "touch") drag = null; }} ondblclick={(e) => dbl(e, d)}>
             {#each timed(d) as p (p.item.o.uid + p.item.o.recurrenceStart + dayKey(d))}
               {@const x = p.item}
-              <button class="ev" style="--c:{x.o.color};top:{(p.start / 60) * HH}px;height:{Math.max(((p.end - p.start) / 60) * HH - 1, 14)}px;left:calc({(p.col / p.cols) * 100}% + 1px);width:calc({100 / p.cols}% - 3px)"
+              <button class="ev" data-ek={evKey(x.o)} class:lifted={mv?.key === evKey(x.o)} style="--c:{x.o.color};top:{(p.start / 60) * HH}px;height:{Math.max(((p.end - p.start) / 60) * HH - 1, 14)}px;left:calc({(p.col / p.cols) * 100}% + 1px);width:calc({100 / p.cols}% - 3px)"
                 aria-label={label(x)} onclick={(e) => open(e, x.o)}>
                 <span class="t ell">{x.o.summary || "Untitled"}{#if x.o.isRecurring}<span aria-hidden="true"> ↻</span>{/if}</span>
                 {#if p.end - p.start >= 40}<span class="s mono ell">{fmtTime(x.sp.start)}{x.o.hasZoom ? " · Zoom" : ""}</span>{/if}
@@ -100,6 +191,9 @@
             {/each}
             {#if drag && drag.day === dayKey(d) && drag.a !== drag.b}
               <div class="sel" style="top:{(Math.min(drag.a, drag.b) / 60) * HH}px;height:{(Math.abs(drag.b - drag.a) / 60) * HH}px" aria-hidden="true"></div>
+            {/if}
+            {#if mv && mv.day === dayKey(d)}
+              <div class="sel mvg" style="top:{(mv.start / 60) * HH}px;height:{Math.max((mv.dur / 60) * HH, 14)}px" aria-hidden="true"><span class="mono">{fmtTime(at(d, mv.start))}</span></div>
             {/if}
             {#if sameDay(d, now)}<div class="now" style="top:{(nowMin / 60) * HH}px" aria-hidden="true"></div>{/if}
           </div>
@@ -132,6 +226,8 @@
     background: color-mix(in srgb, var(--c) 30%, var(--bg)); border: 0; border-left: 3px solid var(--c); border-radius: 2px; color: var(--ink); font-size: 12px; line-height: 1.25; min-width: 0; }
   .ev:hover { background: color-mix(in srgb, var(--c) 48%, var(--bg)); z-index: 2; }
   .ev .t { font-weight: 600; max-width: 100%; } .ev .s { color: var(--text); font-size: 10.5px; max-width: 100%; opacity: .85; }
+  .ev.lifted { opacity: .35; }
+  .mvg { display: flex; align-items: flex-start; border-style: solid; background: color-mix(in srgb, var(--accent) 35%, transparent); } .mvg span { font-size: 11px; padding: 1px 4px; color: var(--ink); }
   .sel { position: absolute; left: 2px; right: 2px; background: color-mix(in srgb, var(--accent) 25%, transparent); border: 1px dashed var(--accent); border-radius: 2px; pointer-events: none; }
   .now { position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); z-index: 3; pointer-events: none; }
   .now::before { content: ""; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }

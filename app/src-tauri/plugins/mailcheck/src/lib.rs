@@ -249,6 +249,16 @@ mod mobile {
     }
     #[derive(Serialize)]
     pub struct Empty {}
+    // share / Quick Look / print arguments (ShareSheet.swift)
+    #[derive(Serialize)]
+    pub struct PathArgs<'a> {
+        pub path: &'a str,
+    }
+    #[derive(Serialize)]
+    pub struct PrintHtmlArgs<'a> {
+        pub html: &'a str,
+        pub title: &'a str,
+    }
     #[derive(Deserialize)]
     pub struct AllowedReply {
         pub allowed: bool,
@@ -317,6 +327,95 @@ pub fn take_tap<R: Runtime>(app: &tauri::AppHandle<R>) -> Option<Tap> {
         let _ = app;
         None
     }
+}
+
+// ---------------------------------------------------------------- share / Quick Look / print (ShareSheet.swift)
+
+/// System share sheet (Save to Files, AirDrop, Mail, ...) for a file the app staged in its own cache. Swift refuses a
+/// path outside `<container>/.../share/<dir>/` and deletes the folder when the sheet is dismissed. Blocking until the
+/// sheet is presented; call from a worker thread. Errors off iOS.
+pub fn share_file<R: Runtime>(app: &tauri::AppHandle<R>, path: &std::path::Path) -> Result<(), String> {
+    file_cmd(app, "shareFile", path)
+}
+
+/// Quick Look preview (inside the app) of a staged file; same path rules and cleanup as [`share_file`].
+pub fn preview_file<R: Runtime>(app: &tauri::AppHandle<R>, path: &std::path::Path) -> Result<(), String> {
+    file_cmd(app, "previewFile", path)
+}
+
+/// System print sheet for a staged file (PDF or image); same path rules and cleanup as [`share_file`].
+pub fn print_file<R: Runtime>(app: &tauri::AppHandle<R>, path: &std::path::Path) -> Result<(), String> {
+    file_cmd(app, "printFile", path)
+}
+
+/// System print sheet for an HTML document, rendered with JavaScript off and navigation blocked. `title` names the job.
+pub fn print_html<R: Runtime>(app: &tauri::AppHandle<R>, html: &str, title: &str) -> Result<(), String> {
+    #[cfg(mobile)]
+    {
+        use tauri::Manager;
+        let h = app.try_state::<mobile::Handle<R>>().ok_or("The print sheet isn't available.")?;
+        h.0.run_mobile_plugin::<serde_json::Value>("printHtml", mobile::PrintHtmlArgs { html, title })
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, html, title);
+        Err("Printing is only available on iPhone.".into())
+    }
+}
+
+fn file_cmd<R: Runtime>(app: &tauri::AppHandle<R>, cmd: &str, path: &std::path::Path) -> Result<(), String> {
+    #[cfg(mobile)]
+    {
+        use tauri::Manager;
+        let h = app.try_state::<mobile::Handle<R>>().ok_or("The share sheet isn't available.")?;
+        let path = path.to_str().ok_or("Bad file path.")?;
+        h.0.run_mobile_plugin::<serde_json::Value>(cmd, mobile::PathArgs { path }).map(|_| ()).map_err(|e| e.to_string())
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, cmd, path);
+        Err("The share sheet is only available on iPhone.".into())
+    }
+}
+
+// ---------------------------------------------------------------- home-screen widgets (WidgetBridge.swift)
+
+#[cfg(mobile)]
+#[derive(serde::Deserialize)]
+struct WidgetDirReply {
+    path: Option<String>,
+}
+
+/// The App Group container (`group.<app bundle id>`) the widget extension reads, or `None` when the group is not
+/// provisioned / off iOS. Blocking; call from a worker thread. Nothing else is shared with the extension.
+pub fn widget_container<R: Runtime>(app: &tauri::AppHandle<R>) -> Option<std::path::PathBuf> {
+    #[cfg(mobile)]
+    {
+        use tauri::Manager;
+        let h = app.try_state::<mobile::Handle<R>>()?;
+        let r = h.0.run_mobile_plugin::<WidgetDirReply>("widgetContainer", mobile::Empty {}).ok()?;
+        r.path.filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = app;
+        None
+    }
+}
+
+/// `WidgetCenter.shared.reloadAllTimelines()`. No-op off iOS.
+pub fn reload_widgets<R: Runtime>(app: &tauri::AppHandle<R>) {
+    #[cfg(mobile)]
+    {
+        use tauri::Manager;
+        if let Some(h) = app.try_state::<mobile::Handle<R>>() {
+            let _ = h.0.run_mobile_plugin::<serde_json::Value>("widgetReload", mobile::Empty {});
+        }
+    }
+    #[cfg(not(mobile))]
+    let _ = app;
 }
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {

@@ -49,5 +49,10 @@ export const orgApi = {
   getSource: (account: string, folder: string, uid: number) => call<SourceView>("get_source", { account, folder, uid }),
   saveEml: (account: string, folder: string, uid: number) => call<string>("save_eml", { account, folder, uid }),
   openAttachment: (account: string, folder: string, uid: number, id: string) => call<void>("open_attachment", { account, folder, uid, id }),
+  /** iPhone only (src-tauri/src/share.rs): system share sheet / Quick Look / print sheet. */
+  shareAttachment: (account: string, folder: string, uid: number, id: string) => call<void>("share_attachment", { account, folder, uid, id }),
+  previewAttachment: (account: string, folder: string, uid: number, id: string) => call<void>("preview_attachment", { account, folder, uid, id }),
+  shareEml: (account: string, folder: string, uid: number) => call<void>("share_eml", { account, folder, uid }),
+  printMessage: (html: string, title: string) => call<void>("print_message", { html, title }),
   printPage: () => call<void>("print_page"),
 };

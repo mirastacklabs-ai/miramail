@@ -16,15 +16,22 @@
   $effect(() => { void b.summary.uid; drop(); });
   onDestroy(drop);
 
-  const NA = "Saving and opening attachments isn't available on iPhone yet. Image attachments can be previewed here.";
+  // iPhone: Save = the system share sheet (Save to Files, AirDrop, Mail, ...); Open = Quick Look inside the app.
   async function save(a: Attachment) {
-    if (phone.on) { app.notify(NA, "error"); return; }
+    if (phone.on) {
+      busy = a.id;
+      try { await orgApi.shareAttachment(b.summary.account, b.summary.folder, b.summary.uid, a.id); } catch (e) { app.fail(e); }
+      busy = null;
+      return;
+    }
     try { app.notify(`Saved to ${await api.saveAttachmentToDownloads(app.account!, b.summary.folder, b.summary.uid, a.id)}`); } catch (e) { app.fail(e); }
   }
   async function open(a: Attachment) {
-    if (phone.on) { app.notify(NA, "error"); return; }
     busy = a.id;
-    try { await orgApi.openAttachment(b.summary.account, b.summary.folder, b.summary.uid, a.id); } catch (e) { app.fail(e); }
+    try {
+      if (phone.on) await orgApi.previewAttachment(b.summary.account, b.summary.folder, b.summary.uid, a.id);
+      else await orgApi.openAttachment(b.summary.account, b.summary.folder, b.summary.uid, a.id);
+    } catch (e) { app.fail(e); }
     busy = null;
   }
   async function preview(a: Attachment) {
@@ -59,8 +66,8 @@
           <span class="ell" title={a.name}>{a.name}</span><span class="mono sz">{fmtSize(a.size)}</span>
           <span class="btns">
             {#if previewKind(a.mime, a.size)}<button class="btn ghost sm" disabled={busy === a.id} onclick={() => preview(a)} aria-expanded={shown?.id === a.id}>{shown?.id === a.id ? "Hide" : "Preview"}</button>{/if}
-            {#if openable(a.name)}<button class="btn ghost sm" disabled={busy === a.id} onclick={() => open(a)} title="Open with the default app">Open</button>{/if}
-            <button class="btn ghost sm" onclick={() => save(a)} aria-label="Save {a.name} to Downloads">Save</button>
+            {#if openable(a.name)}<button class="btn ghost sm" disabled={busy === a.id} onclick={() => open(a)} title={phone.on ? "Preview in MiraMail" : "Open with the default app"}>Open</button>{/if}
+            <button class="btn ghost sm" disabled={busy === a.id} onclick={() => save(a)} aria-label={phone.on ? `Save or share ${a.name}` : `Save ${a.name} to Downloads`}>Save</button>
           </span>
         </div>
         {#if shown?.id === a.id}

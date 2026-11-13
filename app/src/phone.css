@@ -28,7 +28,12 @@ html.phone .cv .tb h2 { order: 5; flex-basis: 100%; margin: 4px 0 0; }
 html.phone .cv .seg button { min-height: 40px; padding: 5px 10px; }
 html.phone .ag { padding: 4px 14px 24px; }
 html.phone .ag .it { grid-template-columns: 1fr; gap: 2px; min-height: 52px; }
-html.phone .pop { left: 8px !important; right: 8px; width: auto !important; top: auto !important; bottom: calc(env(safe-area-inset-bottom) + 60px); }
+/* Time grid: swipes scroll, a 400 ms press creates / moves (lib/touchgrid.ts) */
+html.phone .tg .col { touch-action: pan-y; cursor: default; user-select: none; -webkit-user-select: none; }
+html.phone .tg .ev { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+/* Event details open as a bottom sheet on the phone (EventPopover.svelte) */
+html.phone .evsheet .btn { min-height: 44px; }
+html.phone .evsheet dl { font-size: 15px; }
 
 /* Settings sections shown inline */
 html.phone .sec .panel { gap: 16px; }
@@ -45,3 +50,31 @@ html.phone .confirm .acts .btn { min-height: 44px; }
    keep their action rows touchable */
 html.phone .modal .btn.ghost, html.phone .modal .iconbtn { min-height: 44px; }
 html.phone .modal input, html.phone .modal textarea { min-height: 44px; }
+
+/* Calendars sheet (CalPanel in a BottomSheet) */
+html.phone .panel.sheet { overflow: visible; padding: 0; }
+html.phone .panel.sheet .cl { min-height: 44px; padding: 0; gap: 12px; }
+html.phone .panel.sheet .box { width: 20px; height: 20px; }
+html.phone .panel.sheet .nm { font-size: 16px; }
+html.phone .panel.sheet .md { min-height: 40px; font-size: 14px; }
+html.phone .panel.sheet .menu { top: 44px; z-index: 5; }
+html.phone .panel.sheet .menu button { min-height: 44px; font-size: 14px; }
+html.phone .panel.sheet .menu .swb { min-height: 44px; min-width: 44px; width: 44px; height: 44px; background-clip: content-box; padding: 10px; }
+html.phone .panel.sheet .sw { max-width: 280px; gap: 4px; }
+html.phone .panel.sheet .rn { min-height: 44px; }
+html.phone .panel.sheet .zchip { min-height: 44px; }
+html.phone .panel.sheet .sub { padding-left: 32px; font-size: 12px; }
+
+/* Event editor on the phone: one column, 44 px targets, nothing wider than the screen */
+html.phone .ep { padding: 14px 14px calc(env(safe-area-inset-bottom) + 14px); }
+html.phone .ep .grid2 { grid-template-columns: minmax(0, 1fr); }
+html.phone .ep .sel { min-height: 44px; }
+html.phone .ep .pair { flex-wrap: wrap; } html.phone .ep .pair > * { min-width: 0; }
+html.phone .ep .chk { min-height: 44px; } html.phone .ep .chk input { width: 22px; height: 22px; }
+html.phone .ep .chip .x { min-width: 44px; min-height: 36px; font-size: 18px; }
+html.phone .ep .ai { min-height: 44px; min-width: 0; }
+html.phone .ep .field input, html.phone .ep .field textarea { min-height: 44px; }
+html.phone .ep .zoomrow .btn { white-space: normal; }
+html.phone .ep .ell { max-width: 100%; }
+html.phone .ep .acts .btn { flex: 1 1 auto; }
+html.phone .ep .kbd { display: none; }

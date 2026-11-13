@@ -4,6 +4,9 @@
   import { relDate } from "../lib/util";
   import type { CalendarInfo } from "../lib/types";
 
+  // `sheet`: shown inside the phone Calendars bottom sheet (no New event button, big tap rows, closes after a day is picked).
+  let { sheet = false, onpick }: { sheet?: boolean; onpick?: () => void } = $props();
+  const SWATCHES = ["#2bd4bf", "#ff671f", "#4f8cff", "#e5484d", "#a78bfa", "#f5b301", "#46a758", "#ec4899"];
   let mini = $state(new Date(cal.anchor.getFullYear(), cal.anchor.getMonth(), 1));
   $effect(() => { const a = cal.anchor; mini = new Date(a.getFullYear(), a.getMonth(), 1); });
   const cells = $derived(daysIn(rangeFor("month", mini, cal.ws)));
@@ -21,8 +24,8 @@
   const hasRemote = $derived(cal.calendars.some((c) => c.kind === "caldav"));
 </script>
 
-<div class="panel">
-  <button class="btn newbtn" onclick={() => cal.newEvent()}>New event</button>
+<div class="panel" class:sheet>
+  {#if !sheet}<button class="btn newbtn" onclick={() => cal.newEvent()}>New event</button>{/if}
 
   <section aria-label="Mini month">
     <div class="mhead">
@@ -37,7 +40,7 @@
           {#each week as d (dayKey(d))}
             <button role="gridcell" class="md" class:out={d.getMonth() !== mini.getMonth()} class:today={sameDay(d, today)} class:view={inView(d)}
               aria-label={d.toLocaleDateString([], { dateStyle: "full" })} aria-current={sameDay(d, today) ? "date" : undefined} aria-selected={sameDay(d, cal.anchor)}
-              onclick={() => cal.go(d)}>{d.getDate()}</button>
+              onclick={() => { cal.go(d); onpick?.(); }}>{d.getDate()}</button>
           {/each}
         </div>
       {/each}
@@ -71,6 +74,9 @@
         {#if menuFor === c.id}
           <div class="menu" role="menu" tabindex="-1" onkeydown={(e) => { if (e.key === "Escape") { e.stopPropagation(); menuFor = null; } }}>
             <button role="menuitem" onclick={() => startRename(c)}>Rename</button>
+            {#if sheet}<div class="sw" role="group" aria-label="Colour for {c.name}">
+              {#each SWATCHES as col (col)}<button class="swb" class:on={c.color.toLowerCase() === col} style="--s:{col}" aria-label="Colour {col}" aria-pressed={c.color.toLowerCase() === col} onclick={() => { menuFor = null; void cal.recolor(c, col); }}></button>{/each}
+            </div>{/if}
             {#if c.kind === "caldav"}<button role="menuitem" onclick={() => { menuFor = null; void cal.sync(c.id); }}>Sync now</button>{/if}
             <button role="menuitem" class="dg" onclick={() => { menuFor = null; void cal.remove(c); }}>Remove</button>
           </div>
@@ -117,6 +123,8 @@
   .menu { position: absolute; right: 0; top: 28px; z-index: 20; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); display: grid; min-width: 120px; }
   .menu button { background: none; border: 0; text-align: left; padding: 7px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--text); }
   .menu button:hover { background: var(--line); } .menu .dg { color: var(--danger); }
+  .sw { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px; max-width: 176px; }
+  .menu .swb { width: 20px; height: 20px; padding: 0; border-radius: 50%; background: var(--s); border: 2px solid transparent; } .menu .swb.on { border-color: var(--ink); }
   .sk { height: 14px; }
   .zchip { margin-top: auto; display: flex; align-items: center; gap: 8px; background: none; border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 10px; text-align: left; min-width: 0; }
   .zchip:hover { border-color: var(--muted); }

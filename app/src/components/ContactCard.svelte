@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../lib/device";
   // Small card next to the sender in the Reader: what the address book knows, how much mail is cached from them,
   // "Add to contacts" and "Compose to". Looks only at the local address book and the local mail cache.
   import { contactsApi } from "../lib/contactsapi";
@@ -44,7 +45,7 @@
         {:else}
           <span class="dim">Not in your contacts.</span>
         {/if}
-        <span class="dim">{info.messages} message{info.messages === 1 ? "" : "s"} from them on this Mac{info.newest ? `, latest ${fullDate(info.newest)}` : ""}</span>
+        <span class="dim">{info.messages} message{info.messages === 1 ? "" : "s"} from them on {thisDevice()}{info.newest ? `, latest ${fullDate(info.newest)}` : ""}</span>
       {/if}
       <span class="rw">
         {#if info?.contact}

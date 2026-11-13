@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../../lib/device";
   // The Rules section of AI Preferences. Works without any AI provider: rules are local and run without a model.
   import { onMount } from "svelte";
   import RuleEditor from "./RuleEditor.svelte";
@@ -48,7 +49,7 @@
 
 <section class="rules" aria-labelledby="rules-h">
   <h3 id="rules-h">Rules</h3>
-  <p class="note">Local rules sort new mail: move, archive, trash, mark read, flag or colour it, by sender, recipient, subject, mailing list, attachment or size. They run on this Mac without any AI model, and never delete for good or send anything. {AUTOMATION_NOTICE}</p>
+  <p class="note">Local rules sort new mail: move, archive, trash, mark read, flag or colour it, by sender, recipient, subject, mailing list, attachment or size. They run on {thisDevice()} without any AI model, and never delete for good or send anything. {AUTOMATION_NOTICE}</p>
   <div class="kill" class:on={auto.state.rulesPaused}>
     <label class="chk"><input type="checkbox" checked={auto.state.rulesPaused} onchange={(e) => auto.setRulesPaused(e.currentTarget.checked)} /> Pause all rules</label>
     <span class="dim">{auto.state.rulesPaused ? "Rules are paused. Mail that arrives now will not be sorted later." : "Rules are active."}</span>

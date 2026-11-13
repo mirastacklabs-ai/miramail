@@ -1,8 +1,8 @@
-import { api, onCalChanged } from "./api";
+import { api, errMsg, onCalChanged } from "./api";
 import { app } from "./state.svelte";
-import { thisDevice } from "./device";
+import { thisDevice, deviceMsg } from "./device";
 import { workspace } from "./workspace.svelte";
-import { fg } from "./foreground";
+import { fg, isDeferred } from "./foreground";
 import { rangeFor, sod, stepAnchor, titleFor, localTz, toRfc, weekStartDay, type CalMode } from "./caldate";
 import type { CalEvent, CalendarInfo, Occurrence, ZoomStatus } from "./types";
 
@@ -93,6 +93,10 @@ class CalState {
     const n = name.trim(); if (!n || n === c.name) return;
     try { await api.calUpdateCalendar(c.id, { name: n }); c.name = n; } catch (e) { app.fail(e); }
   }
+  async recolor(c: CalendarInfo, color: string) {
+    const old = c.color; c.color = color;
+    try { await api.calUpdateCalendar(c.id, { color }); await this.load(); } catch (e) { c.color = old; app.fail(e); }
+  }
   async remove(c: CalendarInfo) {
     const ok = await app.ask({ title: "Remove calendar?", body: c.kind === "local" ? `“${c.name}” and its events will be deleted from ${thisDevice()}.` : `“${c.name}” and its saved password will be removed from ${thisDevice()}. Events on the server are not touched.`, ok: "Remove", danger: true });
     if (!ok) return;
@@ -101,11 +105,11 @@ class CalState {
 
   async deleteEvent(uid: string, calendarId: string, notify: boolean) {
     try { await api.calDeleteEvent(uid, calendarId, notify); this.popover = null; await this.load(); app.notify("Event deleted"); return true; }
-    catch (e) { app.fail(e); return false; }
+    catch (e) { if (!isDeferred(e)) app.notify(deviceMsg(errMsg(e)), "error"); return false; }
   }
   async save(ev: CalEvent, sendInvites: boolean): Promise<boolean> {
     try { await api.calSaveEvent(ev, sendInvites); await this.load(); app.notify(sendInvites ? "Saved and invitations sent" : "Event saved"); return true; }
-    catch (e) { app.fail(e); return false; }
+    catch (e) { if (!isDeferred(e)) app.notify(deviceMsg(errMsg(e)), "error"); return false; }
   }
 }
 function sameAnchorDay(a: Date) { return sod(new Date()).getTime() === a.getTime(); }

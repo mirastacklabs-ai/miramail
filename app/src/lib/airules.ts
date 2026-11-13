@@ -1,9 +1,10 @@
 // Pure helpers for local rules and the template auto-reply (AI chat P4). No model is involved in either.
 // The backend validates everything again; these only give instant feedback and plain-English text.
+import { thisDevice } from "./device.ts";
 import type { AutoReplyConfig, ReplyLogRow, RuleAction, RuleCondition, RuleField, RuleOp, RuleRun, RuleSpec } from "./aitypes";
 
 export const AUTOMATION_NOTICE =
-  "Rules and automatic replies run only while MiraMail is open on this Mac. For the times it is closed, set up your mail provider's own vacation responder or filters.";
+  `Rules and automatic replies run only while MiraMail is open on ${thisDevice()}. For the times it is closed, set up your mail provider's own vacation responder or filters.`;
 export const MAX_CONDITIONS = 10;
 export const MAX_ACTIONS = 3;
 export const MAX_VALUE = 200;
@@ -197,5 +198,5 @@ export function replyProblems(c: AutoReplyConfig): string[] {
 export const AUTOREPLY_WARNINGS = [
   "This sends real email from your address, with the text you type here, to people who write to you.",
   "It never uses an AI model. It answers each sender at most once every 7 days, never answers newsletters, mailing lists, bounces or no-reply addresses, and stops at the daily limit.",
-  "It only works while MiraMail is open on this Mac. Mail that arrives while it is closed is answered only if it is under 2 days old when MiraMail opens again; for real time off, also set up your provider's vacation responder.",
+  `It only works while MiraMail is open on ${thisDevice()}. Mail that arrives while it is closed is answered only if it is under 2 days old when MiraMail opens again; for real time off, also set up your provider's vacation responder.`,
 ];

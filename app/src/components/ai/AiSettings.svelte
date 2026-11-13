@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keychainName, thisDevice } from "../../lib/device";
   // Preferences > AI: providers, budgets, redaction defaults, retention and purge.
   import { onMount } from "svelte";
   import Select from "../Select.svelte";
@@ -99,7 +100,7 @@
     saving = false;
   }
   async function removeIt(p: Profile) {
-    const ok = await app.ask({ title: `Remove ${p.name}?`, body: "The provider and its saved key are removed from this Mac. Existing conversations stay readable.", ok: "Remove", danger: true });
+    const ok = await app.ask({ title: `Remove ${p.name}?`, body: `The provider and its saved key are removed from ${thisDevice()}. Existing conversations stay readable.`, ok: "Remove", danger: true });
     if (!ok) return;
     try { await ai.deleteProfile(p.id); if (editing === p.id) closeForm(); } catch (e) { app.fail(e); }
   }
@@ -141,7 +142,7 @@
 
 <div class="ai">
   <h3>AI providers</h3>
-  <p class="note">Bring your own provider. Messages go from this Mac straight to the endpoint you choose; MiraMail has no AI service of its own. The AI never sends or permanently deletes mail.</p>
+  <p class="note">Bring your own provider. Messages go from {thisDevice()} straight to the endpoint you choose; MiraMail has no AI service of its own. The AI never sends or permanently deletes mail.</p>
 
   {#if !ai.loaded && ai.loadError}
     <div class="warn" role="alert"><strong>AI settings could not be loaded.</strong> <span class="mono">{ai.loadError}</span>
@@ -199,7 +200,7 @@
           <input id="pf-key" type="password" bind:value={apiKey} onchange={detectModels} autocomplete="off" spellcheck="false" placeholder={original?.hasKey && !reenter ? "••••••••" : ""} />
           {#if reenter}<span class="warn inline" role="alert">Base URL changed — re-enter the key. A saved key is never sent to a different address.</span>{/if}
           {#if original?.hasKey && !reenter}<label class="chk"><input type="checkbox" bind:checked={clearKey} /> Remove the saved key</label>{/if}
-          <span class="help">Stored only in the macOS Keychain. Never written to files or browser storage.</span></div>
+          <span class="help">Stored only in the {keychainName()}. Never written to files or browser storage.</span></div>
 
         <div class="field"><span class="label" id="pf-m">Model</span>
           {#if models.length && !customModel}
@@ -238,7 +239,7 @@
   </div>
 
   <h3>Default redaction</h3>
-  <p class="note">Before any mail text leaves this Mac it can be reduced: quoted earlier replies and signatures are cut out, links are shortened to their domain, and email addresses are replaced with placeholders. These are the defaults for new conversations; you can change them per conversation.</p>
+  <p class="note">Before any mail text leaves {thisDevice()} it can be reduced: quoted earlier replies and signatures are cut out, links are shortened to their domain, and email addresses are replaced with placeholders. These are the defaults for new conversations; you can change them per conversation.</p>
   {#each REDACT as r (r.k)}
     <label class="chk"><input type="checkbox" bind:checked={s.defaultRedaction[r.k]} /> {r.label}</label>
   {/each}

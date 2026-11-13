@@ -27,11 +27,13 @@ mod safety_cmds;
 mod outbox;
 mod panes;
 mod prefetch;
+mod share;
 mod presence;
 mod state;
 mod textsafe;
 mod vcard;
 mod vacation;
+mod widget_snapshot;
 mod wire;
 
 mod badge;
@@ -174,6 +176,8 @@ fn install_mailcheck(app: &tauri::AppHandle) {
         let work = tauri::async_runtime::block_on(async {
             tokio::time::timeout(bgcheck::BUDGET + std::time::Duration::from_secs(3), bgcheck::run(&app, cancelled)).await
         });
+        // New mail was stored: refresh the home-screen widgets' snapshot before iOS suspends us again (counts only on screen).
+        widget_snapshot::refresh_blocking(&app);
         match work {
             Ok(Ok(s)) if s.cut || token.is_cancelled() => Ok(tauri_plugin_mailcheck::Outcome::Cut(s.text())),
             Ok(Ok(s)) if s.failed > 0 && s.failed == s.accounts => Err(s.text()),
@@ -267,6 +271,9 @@ pub fn run() {
             plat.init(dir.join(plat_prefs::FILE));
             app.manage(plat);
             app.manage(badge::BadgeState::default());
+            let wd = widget_snapshot::WidgetState::default();
+            wd.init(dir.join(widget_snapshot::PREFS_FILE));
+            app.manage(wd);
             app.manage(mailto::Pending::default());
             // The main window is built here, not from tauri.conf.json (`"create": false`), so it can get the same new-window /
             // download hardening as the others (see linknav::harden). All state is managed by now, so the first IPC call
@@ -280,6 +287,8 @@ pub fn run() {
             }
             widget::sync(app.handle());
             install_mailcheck(app.handle());
+            widget_snapshot::request(app.handle(), false);
+            share::sweep_on_launch(app.handle());
             #[cfg(desktop)]
             panes::restore(app.handle());
 
@@ -347,6 +356,10 @@ pub fn run() {
             organise::save_eml,
             organise::open_attachment,
             organise::print_page,
+            share::share_attachment,
+            share::preview_attachment,
+            share::share_eml,
+            share::print_message,
             composer::composer_data,
             composer::save_signature,
             composer::delete_signature,
@@ -488,6 +501,9 @@ pub fn run() {
             native::platform_info,
             native::open_link,
             presence::launch_state,
+            widget_snapshot::get_widget_prefs,
+            widget_snapshot::set_widget_prefs,
+            widget_snapshot::take_pending_tab,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building MiraMail")
@@ -502,7 +518,10 @@ pub fn run() {
                     }
                 }
                 // A mailto: link opened MiraMail (macOS delivers it as an "open URL" event).
-                tauri::RunEvent::Opened { urls } => mailto::on_opened(app, &urls),
+                tauri::RunEvent::Opened { urls } => {
+                    mailto::on_opened(app, &urls);
+                    widget_snapshot::on_opened(app, &urls);
+                }
                 // Dock icon clicked with no window showing.
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { has_visible_windows: false, .. } => menu::show_main(app),

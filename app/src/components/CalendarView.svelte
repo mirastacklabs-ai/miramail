@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keychainName, thisDevice } from "../lib/device";
   import { onMount } from "svelte";
   import { cal } from "../lib/cal.svelte";
   import { daysIn, type CalMode } from "../lib/caldate";
@@ -65,8 +66,8 @@
     <div class="empty" role="region" aria-label="Connect your calendar">
       <div class="et">
         <strong>Connect your calendar</strong>
-        <span>Zoho, iCloud, Fastmail or any CalDAV server. Until then only the local calendar on this Mac is shown.</span>
-        {#if reuse}<span>Your password stays in the macOS Keychain and is only reused on this Mac, for your {reuse.preset} calendar server.</span>{/if}
+        <span>Zoho, iCloud, Fastmail or any CalDAV server. Until then only the local calendar on {thisDevice()} is shown.</span>
+        {#if reuse}<span>Your password stays in the {keychainName()} and is only reused on {thisDevice()}, for your {reuse.preset} calendar server.</span>{/if}
         {#if cerr}<span class="cerr" role="alert">{cerr}</span>{/if}
       </div>
       {#if reuse}

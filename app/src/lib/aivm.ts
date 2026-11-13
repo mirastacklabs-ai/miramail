@@ -1,4 +1,5 @@
 // Pure view-model helpers for the AI chat UI (no Svelte, no DOM): safe to run under node --test.
+import { thisDevice } from "./device.ts";
 import type { AiMessage, AiSettings, CalendarConsent, Consent, ConsentScope, DraftState, DraftSummary, EgressItem, EventCard, EgressRow, Profile, ProfileKind, ProfileWarning, ProposalItem, ProposalState, ProposalSummary, Redaction, ToolChip } from "./aitypes";
 
 export interface Preset { id: string; label: string; kind: ProfileKind; baseUrl: string; model: string; maxOutputTokens: number; needsKey: boolean }
@@ -74,7 +75,7 @@ export function toneNotice(name: string, host: string): string {
 /** One sentence in the "Edit permissions" dialog. */
 export const EDIT_KEEPS_READ_NOTE = "Mail MIRA read from a folder you remove is no longer sent with later messages. Your messages and MIRA's earlier replies stay in this chat; start a new chat to drop them.";
 export const TONE_SETUP_HINT = "Set up an AI provider in Settings to use this.";
-export const TONE_LOCAL_NOTICE = "Nothing leaves this Mac: the provider runs locally.";
+export const TONE_LOCAL_NOTICE = `Nothing leaves ${thisDevice()}: the provider runs locally.`;
 
 /** Heading of the "Edit permissions" dialog: names the label AND the host, and says it is an existing chat. */
 export function editHeading(name: string, host: string, model: string): string {

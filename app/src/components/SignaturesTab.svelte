@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../lib/device";
   // Preferences > Signatures: named signatures (plain or rich), per-account defaults, and From identities.
   import { onMount } from "svelte";
   import { api, errMsg } from "../lib/api";
@@ -79,7 +80,7 @@
 </script>
 
 <h3>Signatures</h3>
-<p class="note">Signatures are stored on this Mac. Plain-text signatures are added with the standard “-- ” separator line.</p>
+<p class="note">Signatures are stored on {thisDevice()}. Plain-text signatures are added with the standard “-- ” separator line.</p>
 
 <div class="sigs">
   <ul class="list" aria-label="Signatures">

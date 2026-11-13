@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keychainName, thisDevice } from "../lib/device";
   import Select from "./Select.svelte";
   import { onMount } from "svelte";
   import { api, onCalAddProgress, openExternal, errMsg } from "../lib/api";
@@ -103,7 +104,7 @@
         <div class="sw" role="radiogroup" aria-labelledby="ac-c">
           {#each CAL_COLORS as c (c)}<button type="button" role="radio" aria-checked={color === c} aria-label={c} class:on={color === c} style="--c:{c}" onclick={() => (color = c)}></button>{/each}
         </div></div>
-      <p class="note">Stored only on this Mac.</p>
+      <p class="note">Stored only on {thisDevice()}.</p>
     {:else}
       <div class="field"><span class="label" id="ac-pl">Provider</span>
         <div class="seg pre" role="group" aria-labelledby="ac-pl">
@@ -120,7 +121,7 @@
           {#each reusable as a (a.email)}
             <button type="button" class="btn" disabled={busy} onclick={() => submit(undefined, a.email)}>{busy ? "Connecting…" : `Use my ${a.email} mail login`}</button>
           {/each}
-          <p class="note">Your password stays in the macOS Keychain and is only reused on this Mac, for the {PRESETS.find((p) => p.id === preset)?.label} calendar server.</p>
+          <p class="note">Your password stays in the {keychainName()} and is only reused on {thisDevice()}, for the {PRESETS.find((p) => p.id === preset)?.label} calendar server.</p>
           <button type="button" class="ln" onclick={() => (manual = true)}>Enter a different login</button>
         </div>
       {:else}
@@ -139,7 +140,7 @@
           <p>Enter the full https:// CalDAV address of your server or calendar.</p>
         {/if}
         {#if DOCS[preset]}<p class="lnk">More: <button type="button" class="ln" onclick={() => openDoc(DOCS[preset]!)}>{DOCS[preset]}</button></p>{/if}
-        <p>Your password is checked against the server, then stored only in the macOS Keychain. MiraMail contacts nothing but this server.</p>
+        <p>Your password is checked against the server, then stored only in the {keychainName()}. MiraMail contacts nothing but this server.</p>
       </div>
       {/if}
     {/if}

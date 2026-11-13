@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../../lib/device";
   // Tone row under the message body. Layer 1 (the meter) is local: it runs on this Mac and sends nothing.
   // Layer 2 ("Check tone") asks the configured AI provider ONCE, only after the user confirms the notice below.
   import { onDestroy } from "svelte";
@@ -182,7 +183,7 @@
 {#if stage === "confirm" && profile}
   <Modal title="Check tone with {profile.name}" onclose={cancel} width={500}>
     <p class="notice">{toneNotice(profile.name, host)}</p>
-    {#if isLoopbackHost(host)}<p class="dim">This provider runs on this Mac.</p>{/if}
+    {#if isLoopbackHost(host)}<p class="dim">This provider runs on {thisDevice()}.</p>{/if}
     {#each profile.warnings as w (w.kind)}
       <p class="warn" role="note"><strong>{w.kind === "cleartextRemote" ? "Not encrypted." : "Local network."}</strong> {w.message}</p>
     {/each}

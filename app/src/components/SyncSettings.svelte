@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../lib/device";
   import { onMount } from "svelte";
   import { api, errMsg } from "../lib/api";
   import { app } from "../lib/state.svelte";
@@ -67,7 +68,7 @@
 
 <section aria-labelledby="hist-h">
   <h3 id="hist-h">Message history</h3>
-  <p class="note">How many of the newest messages are downloaded the first time a folder is synced. More takes longer and uses more disk space. A change applies to folders synced from now on; folders already on this Mac keep what they have, and you can always load older mail with the button at the bottom of a message list.</p>
+  <p class="note">How many of the newest messages are downloaded the first time a folder is synced. More takes longer and uses more disk space. A change applies to folders synced from now on; folders already on {thisDevice()} keep what they have, and you can always load older mail with the button at the bottom of a message list.</p>
   <div class="field"><span class="label" id="ss-init-l">Initial messages per folder</span>
     <Select value={initial} options={initialOptions} onchange={(v) => { initial = v; }} labelledby="ss-init-l" disabled={!loaded} /></div>
 

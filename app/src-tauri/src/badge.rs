@@ -183,6 +183,11 @@ impl BadgeState {
     pub fn summary(&self) -> InboxSummary {
         self.lock().last.clone().unwrap_or_default()
     }
+    /// The "older unread beyond the cached window" offset last learnt from the server (0 when unknown).
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))] // used by the iPhone widget snapshot
+    pub fn offset(&self, account: &str) -> u32 {
+        self.lock().offsets.get(account).copied().unwrap_or(0)
+    }
     pub fn note_notified(&self, r: Recent) {
         self.lock().last_notified = Some((std::time::Instant::now(), r));
     }
@@ -324,6 +329,7 @@ pub async fn tick(app: &AppHandle, force: bool) {
     if let Some(s) = summary {
         let _ = app.emit("mail://badge", &s);
         apply(app, &s, &prefs);
+        crate::widget_snapshot::request(app, false);
     }
     if !arrivals.is_empty() {
         // Blocked / muted / VIP-only filtering first (blocked mail is moved to Junk in the background).

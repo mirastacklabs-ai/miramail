@@ -6,6 +6,8 @@
   import { fmtSpan, localTz, occSpan } from "../lib/caldate";
   import type { CalEvent, Occurrence } from "../lib/types";
   import DeleteBar from "./DeleteBar.svelte";
+  import BottomSheet from "./mobile/BottomSheet.svelte";
+  import { phone } from "../lib/phone.svelte";
 
   let { occ, x, y }: { occ: Occurrence; x: number; y: number } = $props();
   let ev = $state<CalEvent | null>(null);
@@ -33,13 +35,11 @@
   async function remove(notify: boolean) { await cal.deleteEvent(occ.uid, occ.calendarId, notify); }
 </script>
 
-<div class="catch" role="presentation" onmousedown={() => (cal.popover = null)}></div>
-<div class="pop" role="dialog" aria-label="Event details: {occ.summary}" tabindex="-1" bind:this={el} style="left:{left}px;top:{top}px;width:{W}px;--c:{occ.color}"
-  onkeydown={(e) => { if (e.key === "Escape" && !app.confirmReq) { e.stopPropagation(); cal.popover = null; } }}>
-  <header>
+{#snippet body(sheet: boolean)}
+  {#if !sheet}<header>
     <h3 class="selectable">{occ.summary || "Untitled"}</h3>
     <button class="iconbtn" aria-label="Close" onclick={() => (cal.popover = null)}><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-  </header>
+  </header>{/if}
   <dl class="selectable">
     <dt>When</dt><dd>{fmtSpan(sp)}{#if !occ.allDay && ev?.tzid && ev.tzid !== localTz()} <span class="mono sub">({ev.tzid})</span>{/if}{#if occ.isRecurring} <span class="mono sub">· repeats</span>{/if}</dd>
     {#if place}<dt>Where</dt><dd>{place}</dd>{/if}
@@ -60,7 +60,19 @@
       <button class="btn sm" disabled={calName?.readOnly} onclick={() => cal.edit(occ)}>Edit</button>
     </div>
   {/if}
+{/snippet}
+
+{#if phone.on}
+  <BottomSheet title={occ.summary || "Event"} onclose={() => (cal.popover = null)} tall>
+    <div class="evsheet" style="--c:{occ.color}">{@render body(true)}</div>
+  </BottomSheet>
+{:else}
+<div class="catch" role="presentation" onmousedown={() => (cal.popover = null)}></div>
+<div class="pop" role="dialog" aria-label="Event details: {occ.summary}" tabindex="-1" bind:this={el} style="left:{left}px;top:{top}px;width:{W}px;--c:{occ.color}"
+  onkeydown={(e) => { if (e.key === "Escape" && !app.confirmReq) { e.stopPropagation(); cal.popover = null; } }}>
+  {@render body(false)}
 </div>
+{/if}
 
 <style>
   .catch { position: fixed; inset: 0; z-index: 40; }
@@ -73,6 +85,7 @@
   .sub { color: var(--muted); } ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; } li { display: flex; gap: 6px; align-items: center; }
   .st { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; } .st.accepted { background: var(--accent); border-color: var(--accent); } .st.declined { border-color: var(--danger); } .st.tentative { border-color: var(--signal); }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+  .evsheet { display: grid; gap: 10px; padding-bottom: 4px; } .evsheet .acts { justify-content: stretch; } .evsheet .acts .btn { flex: 1; }
   .acts { display: flex; justify-content: flex-end; gap: 8px; }
   .ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

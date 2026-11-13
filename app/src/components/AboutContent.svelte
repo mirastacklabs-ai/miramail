@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keychainName, osName } from "../lib/device";
   import { app } from "../lib/state.svelte";
   import { openExternal } from "../lib/api";
   import notices from "../../../THIRD_PARTY_NOTICES.md?raw";
@@ -34,7 +35,7 @@
     </svg>
     <h3>MIRAMAIL</h3>
     <p class="mono ver">Version {version}</p>
-    <p>A free, ad-free, AI-ready mail client for macOS. No telemetry. No ads. Your passwords stay in the macOS Keychain.</p>
+    <p>A free, ad-free, AI-ready mail client for {osName()}. No telemetry. No ads. Your passwords stay in the {keychainName()}.</p>
     <p class="attr">
       <strong>© MIRASTACK LABS PRIVATE LIMITED</strong><br />
       The colours and visual identity of MiraMail are taken from MIRASTACK LABS.

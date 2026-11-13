@@ -3,13 +3,14 @@
   import { phone } from "../../lib/phone.svelte";
   import Settings from "../Settings.svelte";
   import InboxCountSection from "../InboxCountSection.svelte";
+  import WidgetsSection from "../WidgetsSection.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import { cal } from "../../lib/cal.svelte";
   import { onMount } from "svelte";
   import { platformPrefs } from "../../lib/platformprefs.svelte";
   const ALL: { title: string; items: { id: string; label: string }[] }[] = [
     { title: "Mail", items: [{ id: "general", label: "General" }, { id: "appearance", label: "Appearance" }, { id: "composing", label: "Composing" }, { id: "signatures", label: "Signatures" }, { id: "vacation", label: "Vacation reply" }, { id: "sync", label: "Sync" }, { id: "senders", label: "Senders" }, { id: "rules", label: "Rules" }] },
-    { title: "Privacy and alerts", items: [{ id: "privacy", label: "Privacy" }, { id: "notifications", label: "Notifications" }] },
+    { title: "Privacy and alerts", items: [{ id: "privacy", label: "Privacy" }, { id: "notifications", label: "Notifications" }, { id: "widgets", label: "Widgets" }] },
     { title: "MIRA and about", items: [{ id: "ai", label: "MIRA (AI)" }, { id: "about", label: "About" }] },
   ];
   let acct = $state<string | null>(null); // account whose sheet is open
@@ -30,7 +31,7 @@
   <div class="scroll">
     {#if phone.nav.section}
       {#key phone.nav.section}<div class="sec">
-        {#if phone.nav.section === "general"}<InboxCountSection />{:else}<Settings section={phone.nav.section} />{/if}
+        {#if phone.nav.section === "general"}<InboxCountSection />{:else if phone.nav.section === "widgets"}<WidgetsSection />{:else}<Settings section={phone.nav.section} />{/if}
       </div>{/key}
     {:else}
       <div class="label grp">Accounts</div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../lib/device";
   import { tick, untrack } from "svelte";
   import { app } from "../lib/state.svelte";
   import Select from "./Select.svelte";
@@ -321,7 +322,7 @@
     {#if help}
       <div class="pop help" role="region" aria-label="Search operators">
         {#each OPERATORS as o (o.op)}<div><span class="mono">{o.op}</span><span class="d">{o.desc}</span></div>{/each}
-        <div class="note">Prefix with <span class="mono">-</span> to exclude; quote phrases: <span class="mono">subject:"quarterly report"</span>. Plain words match subject, preview, from and to. “This folder” filters the loaded list instantly; “Account” and “All accounts” (and cc:, has:attachment, folder:) search everything cached on this Mac, body text included for messages whose body was downloaded. If nothing is cached, ask the mail server from the button under the results.</div>
+        <div class="note">Prefix with <span class="mono">-</span> to exclude; quote phrases: <span class="mono">subject:"quarterly report"</span>. Plain words match subject, preview, from and to. “This folder” filters the loaded list instantly; “Account” and “All accounts” (and cc:, has:attachment, folder:) search everything cached on {thisDevice()}, body text included for messages whose body was downloaded. If nothing is cached, ask the mail server from the button under the results.</div>
       </div>
     {/if}
     <div class="scope" role="group" aria-label="Search in">

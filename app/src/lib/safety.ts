@@ -1,6 +1,7 @@
 // Pure helpers for the Reader's mail-safety banner (docs/SAFETY_CHECKS.md). The backend computes the report on this
 // Mac (no network); this file only shapes wording and keeps the local "This is fine" list.
 // There is no "safe" label anywhere: the best result is "no red flags found".
+import { thisDevice } from "./device.ts";
 
 export type SafetyLevel = "none_found" | "caution" | "warning";
 export type SafetySeverity = "info" | "low" | "medium" | "high" | "critical";
@@ -8,7 +9,7 @@ export interface SafetyReason { code: string; severity: SafetySeverity; title: s
 export interface SafetyReport { score: number; level: SafetyLevel; reasons: SafetyReason[] }
 
 export const NONE_FOUND_TEXT = "No red flags found. This check cannot prove a message is safe.";
-export const PRIVACY_NOTE = "Checked on this Mac. Nothing was sent anywhere. This check cannot prove a message is safe.";
+export const PRIVACY_NOTE = `Checked on ${thisDevice()}. Nothing was sent anywhere. This check cannot prove a message is safe.`;
 export const DISMISS_KEY = "miramail.safetyfine.v1";
 export const MAX_DISMISSED = 500;
 export const TOP_REASONS = 3;

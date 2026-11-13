@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { deviceWord, keychainName, thisDevice } from "../lib/device";
   // Preferences > Privacy > Backup: settings to a JSON file (never passwords, tokens or API keys), restore with a preview.
   import { app } from "../lib/state.svelte";
   import { t2, type BackupPreview } from "../lib/t2api";
@@ -38,7 +39,7 @@
   }
   async function restore() {
     if (!preview) return;
-    const ok = await app.ask({ title: "Restore these settings?", body: "The ticked sections replace or add to the settings on this Mac. Passwords are not part of a backup, so accounts keep their own. Rules come back switched off.", ok: "Restore" });
+    const ok = await app.ask({ title: "Restore these settings?", body: `The ticked sections replace or add to the settings on ${thisDevice()}. Passwords are not part of a backup, so accounts keep their own. Rules come back switched off.`, ok: "Restore" });
     if (!ok) return;
     busy = true;
     try { result = await apply(preview, ticked, accounts, { replyTo }); preview = null; } catch (e) { app.fail(e); }
@@ -48,7 +49,7 @@
 
 <section class="bk" aria-labelledby="bk-h">
   <h4 id="bk-h">Backup and restore settings</h4>
-  <p class="note">Saves preferences, signatures, sender identities, rules and saved searches to a file in Downloads. It never contains passwords, tokens or API keys: those stay in the macOS Keychain, so add your accounts again on a new Mac and then restore.</p>
+  <p class="note">Saves preferences, signatures, sender identities, rules and saved searches to a file in Downloads. It never contains passwords, tokens or API keys: those stay in the {keychainName()}, so add your accounts again on a new {deviceWord()} and then restore.</p>
   <div class="row">
     <button class="btn" onclick={backup} disabled={busy}>Back up settings</button>
     <button class="btn ghost" onclick={() => fileEl?.click()} disabled={busy}>Restore from file…</button>

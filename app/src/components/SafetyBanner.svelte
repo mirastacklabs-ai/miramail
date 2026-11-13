@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../lib/device";
   import { app } from "../lib/state.svelte";
   import { addDismissed, allReasons, dismissKey, headline, loadDismissed, needsBanner, NONE_FOUND_TEXT, PRIVACY_NOTE, reasonTitle, removeDismissed, storeDismissed, topReasons } from "../lib/safety";
 
@@ -40,7 +41,7 @@
           </ul>
           <div class="acts">
             <button class="btn ghost sm" aria-expanded={open} aria-controls="safety-details" onclick={() => (open = !open)}>{open ? "Hide details" : "Show details"}</button>
-            <button class="btn sm" onclick={markFine} title="Hides this notice for this message. Stored only on this Mac.">This is fine</button>
+            <button class="btn sm" onclick={markFine} title={`Hides this notice for this message. Stored only on ${thisDevice()}.`}>This is fine</button>
           </div>
           {#if open}
             <div id="safety-details" class="details">
@@ -49,7 +50,7 @@
                   <li><span class="chip {r.severity}">{r.severity}</span> <span class="t">{reasonTitle(r)}.</span> {r.detail} <span class="code mono">{r.code}</span></li>
                 {/each}
               </ul>
-              <p class="small dim">{PRIVACY_NOTE} "This is fine" only hides this notice for this message, on this Mac.</p>
+              <p class="small dim">{PRIVACY_NOTE} "This is fine" only hides this notice for this message, on {thisDevice()}.</p>
             </div>
           {/if}
         </div>

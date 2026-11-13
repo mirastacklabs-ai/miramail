@@ -115,6 +115,7 @@ pub async fn remove_account(
     outbox: State<'_, crate::outbox::Outbox>,
     mirror: State<'_, crate::draft_mirror::DraftMirror>,
     snooze: State<'_, crate::snooze::SnoozeState>,
+    app: tauri::AppHandle,
     email: String,
 ) -> CmdResult<()> {
     state.stop_watcher(&email);
@@ -127,7 +128,10 @@ pub async fn remove_account(
     let _ = outbox.store.delete_for_account(&email);
     let _ = mirror.delete_for_account(&email);
     state.secrets.delete(&email).map_err(err)?;
-    state.storage.delete_account(&email).map_err(err)
+    let r = state.storage.delete_account(&email).map_err(err);
+    // iPhone widgets: drop the removed account's counts / names now (the last account removed deletes widget.json).
+    crate::widget_snapshot::request(&app, true);
+    r
 }
 
 #[tauri::command]
@@ -554,7 +558,7 @@ pub async fn message_analysis(
 }
 
 /// (name, mime, bytes) of one attachment.
-async fn load_attachment(
+pub(crate) async fn load_attachment(
     state: &AppState,
     account: &str,
     folder: &str,

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../lib/device";
   import AiSettings from "./ai/AiSettings.svelte";
   import RulesPanel from "./ai/RulesPanel.svelte";
   import { app } from "../lib/state.svelte";
@@ -53,7 +54,7 @@
         {#if tab === "general"}
           <h3>General</h3>
           <p class="note">Accounts are managed from the folder pane. Theme, fonts and density live under Appearance.</p>
-          <p class="note">MiraMail keeps these preferences on this Mac only. Nothing is sent anywhere.</p>
+          <p class="note">MiraMail keeps these preferences on {thisDevice()} only. Nothing is sent anywhere.</p>
           <InboxCountSection />
           <SystemSection />
         {:else if tab === "appearance"}

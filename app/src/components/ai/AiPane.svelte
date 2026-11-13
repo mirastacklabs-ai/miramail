@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thisDevice } from "../../lib/device";
   import { onMount, untrack } from "svelte";
   import { workspace } from "../../lib/workspace.svelte";
   import Select from "../Select.svelte";
@@ -48,7 +49,7 @@
   }
   async function del() {
     if (!cur) return;
-    const ok = await app.ask({ title: "Delete this conversation?", body: "The conversation is removed from this Mac. Its log of what was sent is kept until it expires under Preferences > AI.", ok: "Delete", danger: true });
+    const ok = await app.ask({ title: "Delete this conversation?", body: `The conversation is removed from ${thisDevice()}. Its log of what was sent is kept until it expires under Preferences > AI.`, ok: "Delete", danger: true });
     if (ok) { try { await ai.remove(cur.id); } catch (e) { app.fail(e); } }
   }
 </script>
@@ -65,7 +66,7 @@
   {:else if ai.usable.length === 0}
     <div class="empty">
       <h3>Connect an AI provider</h3>
-      <p>{ai.profiles.length ? "Your provider needs its key entered again before it can be used." : "Add OpenAI, Anthropic, OpenRouter or a model running on this Mac. Nothing is contacted until you start a conversation."}</p>
+      <p>{ai.profiles.length ? "Your provider needs its key entered again before it can be used." : `Add OpenAI, Anthropic, OpenRouter or ${thisDevice() === "this Mac" ? "a model running on this Mac" : "a model on your computer"}. Nothing is contacted until you start a conversation.`}</p>
       <button class="btn" onclick={openAiSettings}>Open AI settings</button>
     </div>
   {:else}
